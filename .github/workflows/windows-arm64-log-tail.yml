@@ -1,0 +1,16 @@
+name: Inspect failed ARM64 build
+on:
+  push:
+    paths: [.github/workflows/windows-arm64-log-tail.yml]
+permissions:
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read failed Gradle output
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/$GITHUB_REPOSITORY/actions/jobs/117688116307/logs > "$RUNNER_TEMP/build.log"
+          tail -n 220 "$RUNNER_TEMP/build.log"

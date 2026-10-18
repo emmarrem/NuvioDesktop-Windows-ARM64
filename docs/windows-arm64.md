@@ -149,3 +149,10 @@ The verifier checks PE headers of the launcher, all loose runtime EXEs and DLLs,
 and the selected native libraries within application and dependency JARs.
 This verifies architecture and packaging; it does not substitute for testing
 playback, graphics drivers, authentication and integrations on your own device.
+
+Windows ARM64 scraper calls use one background thread for native QuickJS calls.
+This avoids races in QuickJS JNI 1.0.15's process-wide VM and class caches while
+allowing suspended network requests to overlap. The build tests thread affinity
+and 256 overlapping runtime lifetimes. Failed workflows save Gradle/native logs
+and JUnit XML reports in the Windows-arm64-build-diagnostics artifact.
+

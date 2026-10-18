@@ -34,6 +34,16 @@ function Invoke-Checked([string]$Program, [string[]]$Arguments) {
     & $Program @Arguments
     if ($LASTEXITCODE -ne 0) { throw "$Program failed with exit code $LASTEXITCODE" }
 }
+function Invoke-Logged([string]$Program, [string[]]$Arguments, [string]$LogPath) {
+    Write-Output "Running $Program; full output: $LogPath"
+    & $Program @Arguments *> $LogPath
+    $commandExitCode = $LASTEXITCODE
+    if ($commandExitCode -ne 0) {
+        Get-Content -LiteralPath $LogPath -Tail 120
+        throw "$Program failed with exit code $commandExitCode. Full output: $LogPath"
+    }
+    Get-Content -LiteralPath $LogPath -Tail 5
+}
 function Get-Download([string]$Name, [string]$Url, [string]$Sha256) {
     $path = Join-Path $work $Name
     if (-not (Test-Path -LiteralPath $path)) { Invoke-WebRequest -Uri $Url -OutFile $path }
@@ -119,7 +129,7 @@ Invoke-Checked $cmake @(
     "-DOPENSSL_ROOT_DIR=$openssl", '-DOPENSSL_USE_STATIC_LIBS=TRUE',
     "-DFETCHCONTENT_SOURCE_DIR_NUVIO_LIBTORRENT=$($torrentSource.Replace('\','/'))"
 )
-Invoke-Checked $cmake @('--build', $engineBuild, '--parallel', '4')
+Invoke-Logged $cmake @('--build', $engineBuild, '--parallel', '4') "$work/native-engine-build.log"
 $env:PATH = "$engineBuild;$llvm/aarch64-w64-mingw32/bin;$env:PATH"
 Invoke-Checked "$engineBuild/tests/nuvio_engine_c_api_smoke.exe" @()
 
@@ -150,7 +160,7 @@ if ($LocalProperties) {
 Push-Location $repo
 try {
     $testTasks = if ($RunTests) {
-        @(':composeApp:desktopTest', '--tests', '*WindowsScrollSettingsTest', '--tests', '*WindowActivityTest', '--tests', '*Arm64UpdateAssetTest', '--tests', '*PluginRuntimeDesktopTest', '--tests', '*DesktopEngineTest.bundledLibraryLoadsAndCreatesEngine*')
+        @(':composeApp:desktopTest', '--tests', '*WindowsScrollSettingsTest', '--tests', '*WindowActivityTest', '--tests', '*Arm64UpdateAssetTest', '--tests', '*PluginRuntimeDesktopTest', '--tests', '*WindowsPluginRuntimeTest', '--tests', '*DesktopEngineTest.bundledLibraryLoadsAndCreatesEngine*')
     } else { @() }
     $gradleArguments = @(
         ':composeApp:stageWindowsArm64Portable',
@@ -161,7 +171,7 @@ try {
         '-Pcompose.desktop.packaging.checkJdkVendor=false', '-Pkotlin.compiler.execution.strategy=in-process',
         '-Dorg.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8', '--max-workers=4', '--no-configuration-cache', '--no-daemon'
     ) + $testTasks
-    Invoke-Checked "$repo/gradlew.bat" $gradleArguments
+    Invoke-Logged "$repo/gradlew.bat" $gradleArguments "$work/gradle-build.log"
 } finally { Pop-Location }
 $destination = "$repo/composeApp/build/compose/binaries/main-release/app"
 $app = "$repo/composeApp/build/compose/binaries/main-release/app/Nuvio"

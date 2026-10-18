@@ -103,3 +103,13 @@ jobs:
         if: always()
         run: |
           Remove-Item -LiteralPath source/local.properties, custom-client.properties -Force -ErrorAction SilentlyContinue
+      - name: Save build failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Windows-arm64-build-diagnostics
+          path: |
+            build/windows-arm64/*.log
+            source/composeApp/build/test-results/desktopTest/*.xml
+          if-no-files-found: ignore
+          retention-days: 7

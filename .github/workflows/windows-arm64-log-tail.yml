@@ -6,11 +6,13 @@ permissions:
   actions: read
 jobs:
   inspect:
-    runs-on: ubuntu-latest
+    runs-on: windows-11-arm
     steps:
       - name: Read failed Gradle output
+        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh api repos/$GITHUB_REPOSITORY/actions/jobs/117688116307/logs > "$RUNNER_TEMP/build.log"
-          tail -n 220 "$RUNNER_TEMP/build.log"
+          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json' }
+          Invoke-WebRequest "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/jobs/117688116307/logs" -Headers $headers -OutFile "$env:RUNNER_TEMP/build.log"
+          Get-Content "$env:RUNNER_TEMP/build.log" -Tail 220

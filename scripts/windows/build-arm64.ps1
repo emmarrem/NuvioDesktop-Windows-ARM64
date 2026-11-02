@@ -18,12 +18,12 @@ if ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne 'Arm64') {
 }
 $gradleSource = Get-Content "$repo/composeApp/build.gradle.kts" -Raw
 $versionCatalog = Get-Content "$repo/gradle/libs.versions.toml" -Raw
-$engineMatch = [regex]::Match($gradleSource, 'nuvio-engine-jvm-(0\.1\.[45])\.jar')
+$engineMatch = [regex]::Match($gradleSource, 'nuvio-engine-jvm-(0\.1\.[456])\.jar')
 if (-not $engineMatch.Success -or $versionCatalog -notmatch 'quickjsKt\s*=\s*"1\.0\.15"') {
     throw 'Upstream changed its native engine or QuickJS ABI. Update the pinned native sources in this port before building this release.'
 }
 $engineVersion = $engineMatch.Groups[1].Value
-$engineCommit = if ($engineVersion -eq '0.1.4') { 'ddb383ba46bafb9970baf0bc23f51de786f58a4c' } else { '99a18601fa12858cc8c62576dc72b87edbd81b9a' }
+$engineCommit = if ($engineVersion -eq '0.1.4') { 'ddb383ba46bafb9970baf0bc23f51de786f58a4c' } elseif ($engineVersion -eq '0.1.5') { '99a18601fa12858cc8c62576dc72b87edbd81b9a' } else { '167f8541d2e07212a9cf7034b9ca4a0c3b6be4d3' }
 $engineSuffix = if ($engineVersion -eq '0.1.5') { '' } else { "-$engineVersion" }
 $engineSource = "$work/nuvio-engine$engineSuffix"
 $engineBuild = "$work/engine-build$engineSuffix"

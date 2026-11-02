@@ -46,7 +46,11 @@ function Invoke-Logged([string]$Program, [string[]]$Arguments, [string]$LogPath)
 }
 function Get-Download([string]$Name, [string]$Url, [string]$Sha256) {
     $path = Join-Path $work $Name
-    if (-not (Test-Path -LiteralPath $path)) { Invoke-WebRequest -Uri $Url -OutFile $path }
+    if (-not (Test-Path -LiteralPath $path)) {
+        Write-Host "Downloading $Name from $([Uri]::new($Url).Host)"
+        Invoke-WebRequest -Uri $Url -OutFile "$path.partial" -MaximumRetryCount 3 -RetryIntervalSec 5
+        Move-Item -LiteralPath "$path.partial" -Destination $path -Force
+    }
     if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Sha256) {
         throw "SHA256 mismatch: $path"
     }

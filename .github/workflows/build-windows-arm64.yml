@@ -1,0 +1,181 @@
+name: Build Windows ARM64
+
+on:
+  schedule:
+    - cron: '23 * * * *'
+  release:
+    types: [published]
+  push:
+    branches: [Dev]
+    paths:
+      - .github/workflows/build-windows-arm64.yml
+      - scripts/windows/**
+      - ports/windows-arm64/**
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Official NuvioMedia release tag, or latest'
+        required: true
+        default: latest
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-arm64-release
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.select.outputs.tag }}
+      publish: ${{ steps.select.outputs.publish }}
+    steps:
+      - uses: actions/github-script@v8
+        id: select
+        env:
+          INPUT_TAG: ${{ inputs.release_tag || 'latest' }}
+        with:
+          script: |
+            if (context.eventName === 'release') {
+              core.setOutput('tag', context.payload.release.tag_name.replace(/-arm64(?:\.\d+)?$/, ''));
+              return;
+            }
+            const releases = await github.paginate(github.rest.repos.listReleases,
+              {owner:'NuvioMedia',repo:'NuvioDesktop',per_page:100});
+            const requested = process.env.INPUT_TAG;
+            const candidates = releases.filter(r => !r.draft && (requested === 'latest' || r.tag_name === requested))
+              .sort((a,b) => Date.parse(b.published_at)-Date.parse(a.published_at));
+            const release = candidates[0];
+            if (!release) throw new Error('No matching upstream release.');
+            if (!/^[a-zA-Z0-9][a-zA-Z0-9._+-]*$/.test(release.tag_name)) throw new Error('Invalid upstream tag');
+            const names = release.assets.map(a => a.name);
+            if (!names.includes('SHA256SUMS.txt') || !names.some(n => /(?:x64|x86_64).*\.msi$/i.test(n))) {
+              core.info('Upstream installer/checksums are not ready; next hourly check will retry.');
+              return;
+            }
+            const tag = release.tag_name + '-arm64.1';
+            try {
+              const {data:existing} = await github.rest.repos.getReleaseByTag({...context.repo,tag});
+              if (!existing.draft) {
+                const assets = existing.assets.map(a=>a.name);
+                if (!assets.includes('build-info.json') || !assets.some(n=>n.endsWith('-portable.zip')) ||
+                    !assets.some(n=>n.endsWith('-portable.zip.sha256'))) throw new Error('Existing public release is incomplete; repair manually.');
+                core.info('ARM64 release already published: '+tag);
+                return;
+              }
+            } catch (error) { if (error.status !== 404) throw error; }
+            core.setOutput('tag', release.tag_name);
+            core.setOutput('publish', 'true');
+  build:
+    needs: watch
+    if: needs.watch.outputs.tag != ''
+    permissions:
+      contents: write
+    runs-on: windows-11-arm
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Resolve official release and verify client installer
+        id: release
+        env:
+          RELEASE_TAG: ${{ needs.watch.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # A fork release may use 0.1.30-alpha-arm64.1 while its source stays 0.1.30-alpha.
+          $upstreamTag = $env:RELEASE_TAG -replace '-arm64(?:\.\d+)?$', ''
+          ./scripts/windows/resolve-upstream-release.ps1 -Tag $upstreamTag -OutputDirectory release-input
+      - uses: actions/checkout@v6
+        with:
+          repository: NuvioMedia/NuvioDesktop
+          ref: ${{ steps.release.outputs.tag }}
+          path: source
+      - name: Apply versioned ARM64 port to selected release
+        run: ./scripts/windows/apply-release-port.ps1 -SourceDirectory source
+      - name: Configure optional custom client
+        env:
+          CONFIG_BASE64: ${{ secrets.NUVIO_DESKTOP_LOCAL_PROPERTIES_BASE64 }}
+        run: |
+          if ($env:CONFIG_BASE64) {
+            [IO.File]::WriteAllBytes("$env:GITHUB_WORKSPACE/custom-client.properties", [Convert]::FromBase64String($env:CONFIG_BASE64))
+          }
+      - name: Build and test native ARM64 app
+        run: |
+          $options = @{
+            SourceDirectory = "$env:GITHUB_WORKSPACE/source"
+            WorkDirectory = "$env:GITHUB_WORKSPACE/build/windows-arm64"
+            OfficialInstaller = "$env:GITHUB_WORKSPACE/release-input/official-windows.msi"
+            RunTests = $true
+          }
+          if (Test-Path custom-client.properties) { $options.LocalProperties = "$env:GITHUB_WORKSPACE/custom-client.properties" }
+          ./scripts/windows/build-arm64.ps1 @options
+      - name: Record source revisions
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          $record = [ordered]@{
+            release = $env:RELEASE_TAG
+            upstreamCommit = (git -C source rev-parse HEAD)
+            portCommit = (git rev-parse HEAD)
+            architecture = 'arm64'
+            signed = $false
+          } | ConvertTo-Json
+          $record | Set-Content build/windows-arm64/build-info.json -Encoding utf8NoBOM
+          "Built Windows ARM64 release **$env:RELEASE_TAG**. Download the portable ZIP from this run's artifacts, extract it, and run Nuvio.exe." | Add-Content $env:GITHUB_STEP_SUMMARY
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Nuvio-Windows-arm64-${{ steps.release.outputs.tag }}
+          path: |
+            build/windows-arm64/Nuvio-Windows-arm64-*-portable.zip
+            build/windows-arm64/Nuvio-Windows-arm64-*.sha256
+            build/windows-arm64/build-info.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Attach ARM64 files to the published release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_ID: ${{ github.event.release.id }}
+        run: ./scripts/windows/upload-release-assets.ps1 -Repository $env:GITHUB_REPOSITORY -ReleaseId $env:RELEASE_ID -Tag $env:RELEASE_TAG -Directory build/windows-arm64
+      - name: Publish tested ARM64 release
+        if: needs.watch.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPSTREAM_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          $tag = "$env:UPSTREAM_TAG-arm64.1"
+          $existing = gh release view $tag --repo $env:GITHUB_REPOSITORY --json isDraft 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            if (-not ($existing | ConvertFrom-Json).isDraft) { throw 'Refusing to replace a public release.' }
+          } else {
+            gh release create $tag --repo $env:GITHUB_REPOSITORY --target (git rev-parse HEAD) --draft --title "Nuvio Windows ARM64 $env:UPSTREAM_TAG" --notes "Unofficial unsigned Windows ARM64 build of https://github.com/NuvioMedia/NuvioDesktop/releases/tag/$env:UPSTREAM_TAG . Extract the portable ZIP and run Nuvio.exe. Source revisions are recorded in build-info.json."
+            if ($LASTEXITCODE) { throw 'Could not create draft release.' }
+          }
+          $files = @(Get-ChildItem build/windows-arm64 -File | Where-Object { $_.Name -match '^Nuvio-Windows-arm64-.+-portable\.zip(?:\.sha256)?$' -or $_.Name -eq 'build-info.json' })
+          if ($files.Count -ne 3) { throw 'Expected ZIP, checksum and build information.' }
+          gh release upload $tag --repo $env:GITHUB_REPOSITORY --clobber @($files.FullName)
+          if ($LASTEXITCODE) { throw 'Release upload failed; draft retained.' }
+          gh release edit $tag --repo $env:GITHUB_REPOSITORY --draft=false --prerelease --latest=false
+          if ($LASTEXITCODE) { throw 'Release publication failed.' }
+      - name: Remove temporary client configuration
+        if: always()
+        run: |
+          Remove-Item -LiteralPath source/local.properties, custom-client.properties -Force -ErrorAction SilentlyContinue
+      - name: Save build failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Windows-arm64-build-diagnostics
+          path: |
+            build/windows-arm64/*.log
+            source/composeApp/build/test-results/desktopTest/*.xml
+          if-no-files-found: ignore
+          retention-days: 7

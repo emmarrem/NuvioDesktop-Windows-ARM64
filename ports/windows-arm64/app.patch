@@ -1,0 +1,963 @@
+diff --git a/composeApp/build.gradle.kts b/composeApp/build.gradle.kts
+index 0f88456f78b133dce2d7d999161703c896cfdebe..57984beba99a2134b85e5f8621412ef2f1f600a2 100644
+--- a/composeApp/build.gradle.kts
++++ b/composeApp/build.gradle.kts
+@@ -1,5 +1,6 @@
+ import org.gradle.api.DefaultTask
+ import org.gradle.api.file.DirectoryProperty
++import org.gradle.api.file.DuplicatesStrategy
+ import org.gradle.api.file.RegularFileProperty
+ import org.gradle.api.provider.Property
+ import org.gradle.api.tasks.Input
+@@ -22,7 +23,12 @@ import org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeSimulatorTes
+ import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
+ import java.io.ByteArrayOutputStream
+ import java.io.File
++import java.io.RandomAccessFile
++import java.lang.Short as JavaShort
+ import java.util.Properties
++import java.util.jar.JarOutputStream
++import java.util.jar.Manifest
++import java.security.MessageDigest
+ import javax.inject.Inject
+ 
+ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
+@@ -720,16 +726,26 @@ val buildLinuxPlayerBridge = tasks.register<Exec>("buildLinuxPlayerBridge") {
+ 
+ val windowsPlayerBridgeArch = when (System.getProperty("os.arch").lowercase()) {
+     "aarch64", "arm64" -> "arm64"
+-    "x86" -> "x86"
+-    else -> "x64"
++    "amd64", "x86_64", "x64" -> "x64"
++    else -> if (isWindowsHost) error("Unsupported Windows JVM architecture") else "x64"
+ }
++val windowsNativeRoot = "native/windows/$windowsPlayerBridgeArch"
+ val windowsPlayerBridgeSource = layout.projectDirectory.file("src/desktopMain/native/windows/player_bridge.cpp")
+-val windowsPlayerBridgeOutput = layout.buildDirectory.file("native/windows/player_bridge.dll")
+-val windowsPlayerBridgeImportLib = layout.buildDirectory.file("native/windows/player_bridge.lib")
+-val windowsPlayerBridgePdb = layout.buildDirectory.file("native/windows/player_bridge.pdb")
+-val windowsPlayerBridgeObj = layout.buildDirectory.file("native/windows/player_bridge.obj")
+-val windowsPlayerBridgeScript = layout.buildDirectory.file("native/windows/build-player-bridge.bat")
+-val windowsPlayerRuntimeOutput = layout.buildDirectory.dir("native/windows-runtime")
++val windowsPlayerBridgeOutput = layout.buildDirectory.file("$windowsNativeRoot/player_bridge.dll")
++val windowsPlayerBridgeImportLib = layout.buildDirectory.file("$windowsNativeRoot/player_bridge.lib")
++val windowsPlayerBridgePdb = layout.buildDirectory.file("$windowsNativeRoot/player_bridge.pdb")
++val windowsPlayerBridgeObj = layout.buildDirectory.file("$windowsNativeRoot/player_bridge.obj")
++val windowsPlayerBridgeScript = layout.buildDirectory.file("$windowsNativeRoot/build-player-bridge.bat")
++val windowsPlayerRuntimeOutput = layout.buildDirectory.dir("native/windows-runtime/$windowsPlayerBridgeArch")
++val windowsClang = providers.gradleProperty("nuvio.windows.clang.path").orNull?.takeIf(String::isNotBlank)
++val windowsQuickJsDll = providers.gradleProperty("nuvio.windows.quickjs.dll").orNull
++    ?.takeIf(String::isNotBlank)?.let(::File)
++val windowsEngineDll = providers.gradleProperty("nuvio.windows.engine.dll").orNull
++    ?.takeIf(String::isNotBlank)?.let(::File)
++    ?: layout.projectDirectory.file(
++        "src/desktopMain/native/windows/engine/" +
++            (if (windowsPlayerBridgeArch == "arm64") "arm64/" else "") + "nuvio_engine.dll",
++    ).asFile
+ if (isWindowsHost) {
+     windowsPlayerBridgeOutput.get().asFile.parentFile.mkdirs()
+ }
+@@ -742,7 +758,9 @@ val windowsWebView2IncludeDir = File(windowsWebView2Root, "build/native/include"
+ val windowsWebView2NativeDir = File(windowsWebView2Root, "build/native/$windowsPlayerBridgeArch")
+ val windowsWebView2LoaderLib = File(windowsWebView2NativeDir, "WebView2Loader.dll.lib")
+ val windowsWebView2LoaderDll = File(windowsWebView2NativeDir, "WebView2Loader.dll")
+-val bundledWindowsLibmpvRuntimeDir = layout.projectDirectory.dir("src/desktopMain/native/windows/runtime").asFile
++val bundledWindowsLibmpvRuntimeDir = layout.projectDirectory.dir(
++    "src/desktopMain/native/windows/runtime" + if (windowsPlayerBridgeArch == "arm64") "/arm64" else "",
++).asFile
+ val windowsLibmpvRuntimeDirOverride = providers.gradleProperty("nuvio.windows.libmpv.runtimeDir").orNull
+     ?.takeIf { it.isNotBlank() }
+     ?.let(::File)
+@@ -753,10 +771,10 @@ val windowsLibmpvDllOverride = providers.gradleProperty("nuvio.windows.libmpv.dl
+     ?.let(::File)
+ val windowsLibmpvDll = windowsLibmpvDllOverride
+     ?: windowsLibmpvRuntimeDir?.resolve("libmpv-2.dll")
+-    ?: listOf(
++    ?: (if (windowsPlayerBridgeArch == "x64") listOf(
+         File("C:/msys64/ucrt64/bin/libmpv-2.dll"),
+         File("C:/msys64/mingw64/bin/libmpv-2.dll"),
+-    ).firstOrNull(File::exists)
++    ) else emptyList()).firstOrNull(File::exists)
+ val windowsCppRuntimeDllNames = listOf(
+     "vcruntime140.dll",
+     "vcruntime140_1.dll",
+@@ -767,7 +785,7 @@ val windowsCppRuntimeDllNames = listOf(
+     "msvcp140_codecvt_ids.dll",
+     "concrt140.dll",
+ )
+-val windowsCppRuntimeDlls = if (isWindowsHost) {
++val windowsCppRuntimeDlls = if (isWindowsHost && windowsClang == null) {
+     windowsCppRuntimeDllNames
+         .map { File("C:/Windows/System32", it) }
+         .filter(File::exists)
+@@ -792,7 +810,18 @@ val missingWindowsPlayerBridgeMessage = """
+     Install the Microsoft.Web.WebView2 NuGet package or pass -Pnuvio.webview2.dir=C:/path/to/microsoft.web.webview2/version.
+     libmpv is loaded at runtime; pass -Pnuvio.windows.libmpv.runtimeDir=C:/path/to/mpv-dlls to bundle it.
+ """.trimIndent()
+-val windowsPlayerBridgeCommand = if (missingWindowsPlayerBridgeInputs.isNotEmpty()) {
++val windowsPlayerBridgeCommand = if (windowsClang != null) {
++    val javaInclude = File(windowsPlayerBridgeJavaHome, "include")
++    listOf(
++        windowsClang, "-std=c++17", "-shared", "-O2", "-static",
++        "-DUNICODE", "-D_UNICODE", "-DNOMINMAX", "-DWIN32_LEAN_AND_MEAN",
++        "-I${javaInclude.absolutePath}", "-I${javaInclude.resolve("win32").absolutePath}",
++        "-I${windowsWebView2IncludeDir.absolutePath}",
++        windowsPlayerBridgeSource.asFile.absolutePath, windowsWebView2LoaderLib.absolutePath,
++        "-lole32", "-luuid", "-luser32", "-lgdi32", "-ldwmapi", "-lshell32", "-ld3d11",
++        "-o", windowsPlayerBridgeOutput.get().asFile.absolutePath,
++    )
++} else if (missingWindowsPlayerBridgeInputs.isNotEmpty()) {
+     listOf(
+         "cmd",
+         "/c",
+@@ -880,6 +909,9 @@ val buildWindowsPlayerBridge = tasks.register<Exec>("buildWindowsPlayerBridge")
+     notCompatibleWithConfigurationCache("Builds a host-local player bridge against WebView2 and libmpv for Windows.")
+     enabled = isWindowsHost
+     inputs.file(windowsPlayerBridgeSource)
++    inputs.file(layout.projectDirectory.file("src/desktopMain/native/windows/com_callback.h"))
++    inputs.property("architecture", windowsPlayerBridgeArch)
++    inputs.property("compiler", windowsClang ?: "msvc")
+     if (windowsWebView2IncludeDir.exists()) {
+         inputs.dir(windowsWebView2IncludeDir)
+     }
+@@ -887,12 +919,77 @@ val buildWindowsPlayerBridge = tasks.register<Exec>("buildWindowsPlayerBridge")
+         inputs.file(windowsWebView2LoaderLib)
+     }
+     outputs.file(windowsPlayerBridgeOutput)
+-    outputs.file(windowsPlayerBridgeImportLib)
+-    outputs.file(windowsPlayerBridgePdb)
+-    onlyIf { !windowsPlayerBridgeOutput.get().asFile.exists() }
+     commandLine(windowsPlayerBridgeCommand)
+ }
+ 
++// A filename alone cannot distinguish an x64 DLL from an ARM64 DLL. Refuse a
++// mixed-architecture package before shipping a launcher that cannot load it.
++fun requireWindowsPeArchitecture(file: File) {
++    require(file.isFile) { "Required Windows $windowsPlayerBridgeArch library is missing: $file" }
++    RandomAccessFile(file, "r").use { input ->
++        require(input.length() >= 64 && input.readUnsignedShort() == 0x4d5a) { "Not a PE binary: $file" }
++        input.seek(60)
++        val peOffset = Integer.reverseBytes(input.readInt()).toLong() and 0xffffffffL
++        require(peOffset <= input.length() - 6) { "Invalid PE header: $file" }
++        input.seek(peOffset)
++        require(input.readInt() == 0x50450000) { "Invalid PE signature: $file" }
++        val machine = JavaShort.reverseBytes(input.readShort()).toInt() and 0xffff
++        val expected = if (windowsPlayerBridgeArch == "arm64") 0xaa64 else 0x8664
++        require(machine == expected) {
++            "Wrong architecture in $file: PE machine 0x${machine.toString(16)}, expected $windowsPlayerBridgeArch"
++        }
++    }
++}
++
++val validateWindowsNativeLibraries = tasks.register("validateWindowsNativeLibraries") {
++    enabled = isWindowsHost
++    notCompatibleWithConfigurationCache("Validates host-local Windows native libraries.")
++    dependsOn(buildWindowsPlayerBridge)
++    doLast {
++        val mpv = windowsLibmpvDll ?: error("Supply -Pnuvio.windows.libmpv.runtimeDir with $windowsPlayerBridgeArch libmpv DLLs")
++        listOf(windowsPlayerBridgeOutput.get().asFile, windowsWebView2LoaderDll, windowsEngineDll, mpv)
++            .plus(windowsCppRuntimeDlls)
++            .plus(windowsLibmpvRuntimeDir?.listFiles { f -> f.extension.equals("dll", true) }.orEmpty())
++            .forEach(::requireWindowsPeArchitecture)
++        windowsQuickJsDll?.let(::requireWindowsPeArchitecture)
++        require(windowsPlayerBridgeArch != "arm64" || windowsQuickJsDll != null) {
++            "Windows ARM64 needs a matching QuickJS JNI library: -Pnuvio.windows.quickjs.dll=/path/to/libquickjs.dll"
++        }
++    }
++}
++
++// Stage a portable distribution independently of Compose's installer task.
++// A small manifest JAR supplies the exact resolved application classpath.
++tasks.register<Sync>("stageWindowsArm64Portable") {
++    group = "distribution"
++    description = "Stages the native Windows ARM64 app and its resolved JVM dependencies."
++    notCompatibleWithConfigurationCache("Writes the portable launch manifest after staging dependencies.")
++    dependsOn("desktopJar", "createRuntimeImage", validateWindowsNativeLibraries)
++    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
++    from(configurations.named("desktopRuntimeClasspath")) {
++        eachFile {
++            if (file.isFile && file.extension == "jar") {
++                val hash = MessageDigest.getInstance("SHA-256").digest(file.readBytes())
++                    .take(12).joinToString("") { "%02x".format(it) }
++                name = "${file.nameWithoutExtension}-$hash.jar"
++            }
++        }
++    }
++    from(tasks.named<Jar>("desktopJar").flatMap { it.archiveFile })
++    into(layout.buildDirectory.dir("windows-arm64/input"))
++    doLast {
++        require(isWindowsHost && windowsPlayerBridgeArch == "arm64") { "Use an ARM64 Windows JDK." }
++        val manifest = Manifest().apply {
++            mainAttributes.putValue("Manifest-Version", "1.0")
++            mainAttributes.putValue("Main-Class", "com.nuvio.app.MainKt")
++            mainAttributes.putValue("Class-Path", destinationDir.listFiles().orEmpty()
++                .filter { it.extension == "jar" && it.name != "nuvio-launcher.jar" }
++                .sortedBy(File::getName).joinToString(" ") { it.name })
++        }
++        JarOutputStream(destinationDir.resolve("nuvio-launcher.jar").outputStream(), manifest).use { }
++    }
++}
++
+ val prepareWindowsPlayerRuntime = tasks.register<Sync>("prepareWindowsPlayerRuntime") {
+     enabled = isWindowsHost
+     into(windowsPlayerRuntimeOutput)
+@@ -961,16 +1058,22 @@ val prepareMacosPlayerAppResources = tasks.register<Sync>("prepareMacosPlayerApp
+ 
+ tasks.withType<Jar>().configureEach {
+     if (isWindowsHost && name == "desktopJar") {
+-        dependsOn(buildWindowsPlayerBridge, prepareWindowsPlayerRuntime, generateWindowsPlayerRuntimeIndex)
++        dependsOn(validateWindowsNativeLibraries, prepareWindowsPlayerRuntime, generateWindowsPlayerRuntimeIndex)
+         from(windowsPlayerBridgeOutput) {
+             into("native/windows")
+         }
+         from(windowsPlayerRuntimeOutput) {
+             into("native/windows")
+         }
+-        from(layout.projectDirectory.file("src/desktopMain/native/windows/engine/nuvio_engine.dll")) {
++        from(windowsEngineDll) {
+             into("native/windows")
+         }
++        windowsQuickJsDll?.let { dll ->
++            from(dll) {
++                into("jni/windows_${if (windowsPlayerBridgeArch == "arm64") "aarch64" else "x64"}")
++                rename { "libquickjs.dll" }
++            }
++        }
+     }
+     if (isLinuxHost && name == "desktopJar") {
+         dependsOn(buildLinuxPlayerBridge)
+@@ -990,6 +1093,16 @@ tasks.matching { it.name == "prepareAppResources" }.configureEach {
+ }
+ 
+ if (isWindowsHost) {
++    windowsQuickJsDll?.let { dll ->
++        tasks.withType<JavaExec>().configureEach {
++            systemProperty("com.dokar.quickjs.library.path", dll.parentFile.absolutePath)
++            systemProperty("com.dokar.quickjs.library.name", dll.name)
++        }
++        tasks.withType<Test>().configureEach {
++            systemProperty("com.dokar.quickjs.library.path", dll.parentFile.absolutePath)
++            systemProperty("com.dokar.quickjs.library.name", dll.name)
++        }
++    }
+     val desktopNativePlayerTasks = setOf(
+         "run",
+         "runRelease",
+@@ -1693,3 +1806,14 @@ configurations.all {
+     exclude(group = "androidx.media3", module = "media3-datasource-okhttp")
+     exclude(group = "androidx.media3", module = "media3-extractor")
+ }
++
++// KMP assigns its test classpath during target configuration. Add the packaged
++// native resources afterwards so integration tests exercise the shipped DLLs.
++afterEvaluate {
++    if (isWindowsHost) {
++        tasks.named<Test>("desktopTest") {
++            dependsOn("desktopJar")
++            classpath += files(tasks.named<Jar>("desktopJar").flatMap { it.archiveFile })
++        }
++    }
++}
+diff --git a/composeApp/src/commonMain/kotlin/com/nuvio/app/RootTabHost.kt b/composeApp/src/commonMain/kotlin/com/nuvio/app/RootTabHost.kt
+index 0b1f0b50ac4457770869bd38f043ae3307ea3de0..6993d9ab08d6a99c0bd5084c8a2b29ade2eafbb9 100644
+--- a/composeApp/src/commonMain/kotlin/com/nuvio/app/RootTabHost.kt
++++ b/composeApp/src/commonMain/kotlin/com/nuvio/app/RootTabHost.kt
+@@ -24,6 +24,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
+ import androidx.lifecycle.compose.currentStateAsState
+ import androidx.lifecycle.compose.rememberLifecycleOwner
+ import com.nuvio.app.core.ui.LocalScreenActive
++import com.nuvio.app.core.ui.LocalWindowActive
+ 
+ @Composable
+ internal fun RootTabHost(
+@@ -34,7 +35,7 @@ internal fun RootTabHost(
+     content: @Composable (AppScreenTab) -> Unit,
+ ) {
+     val parentLifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
+-    val hostActive = active && parentLifecycleState.isAtLeast(Lifecycle.State.STARTED)
++    val hostActive = active && LocalWindowActive.current && parentLifecycleState.isAtLeast(Lifecycle.State.STARTED)
+     val focusManager = LocalFocusManager.current
+     DisposableEffect(selectedTab, hostActive, profileId) {
+         onDispose { focusManager.clearFocus(force = true) }
+diff --git a/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/LoadingIndicator.kt b/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/LoadingIndicator.kt
+index 0f70c1d2405587a8c5e0abcb11f720c65ebbee0e..9bb3f9d3df2238abce838eb4c84f2010da0ccfa5 100644
+--- a/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/LoadingIndicator.kt
++++ b/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/LoadingIndicator.kt
+@@ -74,7 +74,7 @@ fun NuvioLoadingIndicator(
+ 
+ @Composable
+ internal fun rememberLoadingIndicatorFrame(active: Boolean): State<Float> =
+-    if (active) {
++    if (active && LocalWindowActive.current) {
+         rememberInfiniteTransition(label = "loading_indicator").animateFloat(
+             initialValue = 0f,
+             targetValue = 60f,
+diff --git a/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/ScreenActivity.kt b/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/ScreenActivity.kt
+index c30230834fda927b75e690364701a97b1f7886bb..2e0437c7c53ba08a1be4d00d422f82d671ee812a 100644
+--- a/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/ScreenActivity.kt
++++ b/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/ScreenActivity.kt
+@@ -6,12 +6,13 @@ import androidx.compose.runtime.compositionLocalOf
+ import kotlinx.coroutines.CoroutineScope
+ 
+ internal val LocalScreenActive = compositionLocalOf { true }
++internal val LocalWindowActive = compositionLocalOf { true }
+ 
+ @Composable
+ internal fun ScreenActivityEffect(
+     vararg keys: Any?,
+     block: suspend CoroutineScope.(Boolean) -> Unit,
+ ) {
+-    val active = LocalScreenActive.current
++    val active = LocalScreenActive.current && LocalWindowActive.current
+     LaunchedEffect(active, *keys) { block(active) }
+ }
+diff --git a/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/Shimmer.kt b/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/Shimmer.kt
+index cef08ed5ad126c616094033c5efca04084dcf0c9..fb099aa9bf3e2a2248c652147df3dcd664b033ab 100644
+--- a/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/Shimmer.kt
++++ b/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/Shimmer.kt
+@@ -68,7 +68,7 @@ internal fun rememberSkeletonProgress(): State<Float> {
+ 
+ @Composable
+ private fun SkeletonAnimationConsumer(animation: SkeletonAnimation?) {
+-    val active = LocalScreenActive.current
++    val active = LocalScreenActive.current && LocalWindowActive.current
+     DisposableEffect(animation, active) {
+         if (animation != null && active) animation.consumers++
+         onDispose {
+diff --git a/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/jelly/JellyNavigationBar.kt b/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/jelly/JellyNavigationBar.kt
+index 16acba370f254789b7862e84efa245fb4cd4dc20..941d5436ca969b70fa82f508c9d6439c29e11902 100644
+--- a/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/jelly/JellyNavigationBar.kt
++++ b/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/jelly/JellyNavigationBar.kt
+@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.LayoutDirection
+ import androidx.compose.ui.unit.dp
+ import com.nuvio.app.core.ui.FloatingNavigationItem
+ import com.nuvio.app.core.ui.NuvioTokens
++import com.nuvio.app.core.ui.LocalWindowActive
+ import com.nuvio.app.core.ui.detectJellyTabGestures
+ import com.nuvio.app.core.ui.nuvio
+ import com.nuvio.app.core.ui.visualNavIndex
+@@ -56,8 +57,9 @@ internal fun JellyNavigationBar(
+     LaunchedEffect(visualSelectedIndex, items.size) {
+         motion.select(visualSelectedIndex)
+     }
+-    LaunchedEffect(motion.running) {
+-        if (!motion.running) return@LaunchedEffect
++    val windowActive = LocalWindowActive.current
++    LaunchedEffect(motion.running, windowActive) {
++        if (!motion.running || !windowActive) return@LaunchedEffect
+         var previous = withFrameNanos { it }
+         while (motion.running) {
+             withFrameNanos { now ->
+diff --git a/composeApp/src/commonMain/kotlin/com/nuvio/app/features/library/LibraryDownloadsButton.kt b/composeApp/src/commonMain/kotlin/com/nuvio/app/features/library/LibraryDownloadsButton.kt
+index 526e62afe17ff520e053a996556a5b7e8909964c..755ab47e8b9e38f9c29ca1427a5c11a027f27ccd 100644
+--- a/composeApp/src/commonMain/kotlin/com/nuvio/app/features/library/LibraryDownloadsButton.kt
++++ b/composeApp/src/commonMain/kotlin/com/nuvio/app/features/library/LibraryDownloadsButton.kt
+@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.TileMode
+ import androidx.compose.ui.graphics.graphicsLayer
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
+ import com.nuvio.app.core.ui.accentBrush
++import com.nuvio.app.core.ui.LocalWindowActive
+ import com.nuvio.app.core.ui.gradientMask
+ import com.nuvio.app.core.ui.nuvio
+ import com.nuvio.app.core.ui.themePalette
+@@ -55,6 +56,10 @@ internal fun LibraryDownloadsButton(onClick: () -> Unit) {
+ 
+ @Composable
+ private fun FlowingDownloadIcon() {
++    if (!LocalWindowActive.current) {
++        DownloadIcon(tint = MaterialTheme.colorScheme.onSurfaceVariant)
++        return
++    }
+     val palette = MaterialTheme.themePalette
+     val dimAlpha = MaterialTheme.nuvio.opacity.overlayLight
+     val colors = palette.accentGradient.takeIf { it.size >= 2 }
+diff --git a/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/AppUpdaterPlatform.kt b/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/AppUpdaterPlatform.kt
+index 08769589c17ba2c87b0a586386101d18291219c7..f67a6f640d78ca2265a6f120ed40e9b080ba7b18 100644
+--- a/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/AppUpdaterPlatform.kt
++++ b/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/AppUpdaterPlatform.kt
+@@ -13,6 +13,7 @@ data class AppUpdateAssetSelector(
+     val contentTypes: List<String> = emptyList(),
+     val preferredNameFragments: List<String> = emptyList(),
+     val fallbackNameFragments: List<String> = emptyList(),
++    val requiredNameFragments: List<String> = emptyList(),
+ )
+ 
+ expect object AppUpdaterPlatform {
+diff --git a/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/AppUpdaterRepository.kt b/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/AppUpdaterRepository.kt
+index e172da38cde3d8b797e118732fd815fd9e920295..5152038514435b51ed20468d0ce2de0abba46093 100644
+--- a/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/AppUpdaterRepository.kt
++++ b/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/AppUpdaterRepository.kt
+@@ -43,8 +43,11 @@ internal fun selectBestUpdateAsset(
+     selector: AppUpdateAssetSelector,
+ ): AppUpdateAssetCandidate? {
+     val updateAssets = assets.filter { asset ->
+-        selector.fileExtensions.any { extension -> asset.name.endsWith(extension, ignoreCase = true) } ||
+-            selector.contentTypes.any { it.equals(asset.contentType, ignoreCase = true) }
++        (selector.fileExtensions.any { extension -> asset.name.endsWith(extension, ignoreCase = true) } ||
++            selector.contentTypes.any { it.equals(asset.contentType, ignoreCase = true) }) &&
++            (selector.requiredNameFragments.isEmpty() || selector.requiredNameFragments.any {
++                asset.name.contains(it, ignoreCase = true)
++            })
+     }
+     if (updateAssets.isEmpty()) return null
+     if (updateAssets.size == 1) return updateAssets.first()
+diff --git a/composeApp/src/commonTest/kotlin/com/nuvio/app/features/updater/Arm64UpdateAssetTest.kt b/composeApp/src/commonTest/kotlin/com/nuvio/app/features/updater/Arm64UpdateAssetTest.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..235c2a7061433392fc4e448cff2475e6e98ebe77
+--- /dev/null
++++ b/composeApp/src/commonTest/kotlin/com/nuvio/app/features/updater/Arm64UpdateAssetTest.kt
+@@ -0,0 +1,32 @@
++package com.nuvio.app.features.updater
++
++import kotlin.test.Test
++import kotlin.test.assertEquals
++import kotlin.test.assertNull
++
++class Arm64UpdateAssetTest {
++    private val selector = AppUpdateAssetSelector(
++        fileExtensions = listOf(".msi", ".exe"),
++        preferredNameFragments = listOf("arm64", "aarch64", "windows"),
++        requiredNameFragments = listOf("arm64", "aarch64"),
++    )
++
++    private fun asset(name: String) = AppUpdateAssetCandidate(name, "https://example.com/$name")
++
++    @Test
++    fun arm64NeverFallsBackToTheOnlyX64Installer() {
++        assertNull(selectBestUpdateAsset(listOf(asset("Nuvio-Windows-x64-1.0.msi")), selector))
++    }
++
++    @Test
++    fun arm64SelectsItsOwnInstallerFromAMixedRelease() {
++        val arm = asset("Nuvio-Windows-arm64-1.0.msi")
++        assertEquals(arm, selectBestUpdateAsset(listOf(asset("Nuvio-Windows-x64-1.0.msi"), arm), selector))
++    }
++
++    @Test
++    fun aarch64AliasIsAcceptedButNonInstallersAreExcluded() {
++        val arm = asset("Nuvio-Windows-aarch64-1.0.exe")
++        assertEquals(arm, selectBestUpdateAsset(listOf(asset("Nuvio-Windows-arm64-1.0.zip"), arm), selector))
++    }
++}
+diff --git a/composeApp/src/desktopMain/kotlin/com/nuvio/app/DesktopWindowActivity.kt b/composeApp/src/desktopMain/kotlin/com/nuvio/app/DesktopWindowActivity.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..f7249e7cea6ec4903f3f046a43323a1352e134c9
+--- /dev/null
++++ b/composeApp/src/desktopMain/kotlin/com/nuvio/app/DesktopWindowActivity.kt
+@@ -0,0 +1,33 @@
++package com.nuvio.app
++
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.CompositionLocalProvider
++import androidx.compose.runtime.DisposableEffect
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.remember
++import androidx.compose.runtime.setValue
++import com.nuvio.app.core.ui.LocalWindowActive
++import java.awt.Window
++import java.awt.event.WindowAdapter
++import java.awt.event.WindowEvent
++
++@Composable
++internal fun DesktopWindowActivity(
++    window: Window,
++    minimized: Boolean,
++    content: @Composable () -> Unit,
++) {
++    var focused by remember(window) { mutableStateOf(window.isFocused) }
++    DisposableEffect(window) {
++        val listener = object : WindowAdapter() {
++            override fun windowGainedFocus(event: WindowEvent) { focused = true }
++            override fun windowLostFocus(event: WindowEvent) { focused = false }
++        }
++        window.addWindowFocusListener(listener)
++        onDispose { window.removeWindowFocusListener(listener) }
++    }
++    // Screen effects/decorative animations may pause; the native player and
++    // download services stay mounted and continue running in the background.
++    CompositionLocalProvider(LocalWindowActive provides (focused && !minimized), content = content)
++}
+diff --git a/composeApp/src/desktopMain/kotlin/com/nuvio/app/Main.kt b/composeApp/src/desktopMain/kotlin/com/nuvio/app/Main.kt
+index 7bc0c1deb4f26a1b43a9b4f620fda5386f1d51e1..2aa2ff8407894137bf521af0b3239676fb85ca26 100644
+--- a/composeApp/src/desktopMain/kotlin/com/nuvio/app/Main.kt
++++ b/composeApp/src/desktopMain/kotlin/com/nuvio/app/Main.kt
+@@ -213,21 +213,24 @@ fun main(args: Array<String>) {
+                 }
+             }
+ 
+-            if (smokePlayerUrl == null) {
+-                ProvideDesktopWindowInsets(isFullscreen = windowState.placement == WindowPlacement.Fullscreen) {
+-                    App()
+-                }
+-            } else {
+-                // The player surface reads LocalNuvioPlatformDensity, which only
+-                // NuvioTheme provides — the bare smoke harness must supply it too.
+-                NuvioTheme {
+-                    PlatformPlayerSurface(
+-                        sourceUrl = smokePlayerUrl,
+-                        modifier = Modifier.fillMaxSize(),
+-                        onControllerReady = {},
+-                        onSnapshot = {},
+-                        onError = {},
+-                    )
++            DesktopScrollSettings {
++                DesktopWindowActivity(window, minimized = windowState.isMinimized) {
++                    if (smokePlayerUrl == null) {
++                        ProvideDesktopWindowInsets(isFullscreen = windowState.placement == WindowPlacement.Fullscreen) {
++                            App()
++                        }
++                    } else {
++                        // The smoke player also needs the theme's platform density.
++                        NuvioTheme {
++                            PlatformPlayerSurface(
++                                sourceUrl = smokePlayerUrl,
++                                modifier = Modifier.fillMaxSize(),
++                                onControllerReady = {},
++                                onSnapshot = {},
++                                onError = {},
++                            )
++                        }
++                    }
+                 }
+             }
+         }
+diff --git a/composeApp/src/desktopMain/kotlin/com/nuvio/app/WindowsScrollSettings.kt b/composeApp/src/desktopMain/kotlin/com/nuvio/app/WindowsScrollSettings.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..e9868b240eeba9a4804755607a8b0dbd8e492bd7
+--- /dev/null
++++ b/composeApp/src/desktopMain/kotlin/com/nuvio/app/WindowsScrollSettings.kt
+@@ -0,0 +1,62 @@
++@file:Suppress("INVISIBLE_REFERENCE", "INVISIBLE_MEMBER")
++
++package com.nuvio.app
++
++import androidx.compose.foundation.gestures.LocalScrollConfig
++import androidx.compose.foundation.gestures.ScrollConfig
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.CompositionLocalProvider
++import androidx.compose.runtime.remember
++import androidx.compose.ui.awt.awtEventOrNull
++import androidx.compose.ui.geometry.Offset
++import androidx.compose.ui.input.pointer.PointerEvent
++import androidx.compose.ui.input.pointer.PointerEventType
++import androidx.compose.ui.unit.Density
++import androidx.compose.ui.unit.IntSize
++import java.awt.event.MouseWheelEvent
++import kotlin.math.abs
++
++private const val DefaultWindowsScrollScale = 0.45f
++
++internal fun windowsScrollScale(value: String?): Float =
++    value?.toFloatOrNull()?.takeIf { it.isFinite() && it in 0.1f..2f } ?: DefaultWindowsScrollScale
++
++internal fun isPrecisionWheelRotation(rotation: Double, wholeRotation: Int): Boolean =
++    rotation.isFinite() && abs(rotation - wholeRotation.toDouble()) > 0.001
++
++private fun platformWheelDelta(config: ScrollConfig, density: Density, event: PointerEvent, bounds: IntSize): Offset =
++    with(config) { density.calculateMouseWheelScroll(event, bounds) }
++
++// Keep this adapter isolated: Compose's desktop scroll policy is an internal
++// API. The port's compilation/tests must pass before a new Compose version ships.
++internal class WindowsScrollConfig(
++    private val platform: ScrollConfig,
++    private val scale: Float,
++) : ScrollConfig by platform {
++    override fun isPreciseWheelScroll(event: PointerEvent): Boolean {
++        if (event.type == PointerEventType.PanMove) return true
++        val wheel = event.awtEventOrNull as? MouseWheelEvent
++        return (wheel != null && isPrecisionWheelRotation(wheel.preciseWheelRotation, wheel.wheelRotation)) ||
++            platform.isPreciseWheelScroll(event)
++    }
++
++    override fun Density.calculateMouseWheelScroll(event: PointerEvent, bounds: IntSize): Offset {
++        val offset = platformWheelDelta(platform, this, event, bounds)
++        val wheel = event.awtEventOrNull as? MouseWheelEvent
++        // Respect the user's explicit OS "one screen at a time" preference.
++        return if (wheel?.scrollType == MouseWheelEvent.WHEEL_BLOCK_SCROLL) offset else offset * scale
++    }
++}
++
++@Composable
++internal fun DesktopScrollSettings(content: @Composable () -> Unit) {
++    val platform = LocalScrollConfig.current
++    val config = remember(platform) {
++        if (System.getProperty("os.name", "").startsWith("Windows", ignoreCase = true)) {
++            WindowsScrollConfig(platform, windowsScrollScale(System.getProperty("nuvio.desktop.scrollScale")))
++        } else {
++            platform
++        }
++    }
++    CompositionLocalProvider(LocalScrollConfig provides config, content = content)
++}
+diff --git a/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/p2p/DesktopEngineLibrary.kt b/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/p2p/DesktopEngineLibrary.kt
+index 300c0a8533f75165cbae4cb58682ca0441b7fe37..4874030b296a8644e8ed993b9b4a3f2d91e09b71 100644
+--- a/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/p2p/DesktopEngineLibrary.kt
++++ b/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/p2p/DesktopEngineLibrary.kt
+@@ -34,7 +34,9 @@ internal object DesktopEngineLibrary {
+     private fun requireSupportedArchitecture(platform: DesktopHostOs) {
+         if (platform == DesktopHostOs.MACOS) return
+         val architecture = System.getProperty("os.arch").orEmpty().lowercase(Locale.ROOT)
+-        if (architecture !in setOf("amd64", "x86_64", "x64")) {
++        val supported = architecture in setOf("amd64", "x86_64", "x64") ||
++            (platform == DesktopHostOs.WINDOWS && architecture in setOf("arm64", "aarch64"))
++        if (!supported) {
+             throw P2pStreamingException("P2P streaming is not available for $architecture")
+         }
+     }
+@@ -45,11 +47,18 @@ internal object DesktopEngineLibrary {
+             ?.let { File(it, "native/$directory/$name") }
+             ?.takeIf(File::isFile)
+ 
+-    private fun sourceLibrary(directory: String, name: String): File? =
+-        listOf(
+-            File("src/desktopMain/native/$directory/engine/$name"),
+-            File("composeApp/src/desktopMain/native/$directory/engine/$name"),
++    private fun sourceLibrary(directory: String, name: String): File? {
++        val architecture = System.getProperty("os.arch").orEmpty().lowercase(Locale.ROOT)
++        val engineDirectory = if (directory == "windows" && architecture in setOf("arm64", "aarch64")) {
++            "engine/arm64"
++        } else {
++            "engine"
++        }
++        return listOf(
++            File("src/desktopMain/native/$directory/$engineDirectory/$name"),
++            File("composeApp/src/desktopMain/native/$directory/$engineDirectory/$name"),
+         ).firstOrNull(File::isFile)
++    }
+ 
+     private fun extractedLibrary(directory: String, name: String): File? {
+         val resource = DesktopEngineLibrary::class.java
+diff --git a/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/player/desktop/NativePlayerBridge.kt b/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/player/desktop/NativePlayerBridge.kt
+index 4c216c990279fc0dca2347aff038e97a353aa587..cf1c26c34c40b7f34d4d37e2dfa907ae48452c36 100644
+--- a/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/player/desktop/NativePlayerBridge.kt
++++ b/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/player/desktop/NativePlayerBridge.kt
+@@ -248,14 +248,23 @@ internal object NativePlayerBridge {
+             File("composeApp/build/native/$platformDir"),
+             File("build/native/$platformDir"),
+         )
+-        val candidates = roots.map { it.resolve(libraryName) } + roots.flatMap { root ->
++        val candidates = roots.flatMap { root ->
+             architectureDirectories.map { architecture -> root.resolve(architecture).resolve(libraryName) }
++        } + if (platformDir == "windows" && architectureDirectories.firstOrNull() == "arm64") {
++            emptyList()
++        } else {
++            roots.map { it.resolve(libraryName) }
+         }
+         return candidates.firstOrNull { it.exists() }
+     }
+ 
+     private fun nativeArchitectureDirectoryNames(platformDir: String): List<String> =
+         when (platformDir) {
++            "windows" -> when (System.getProperty("os.arch").lowercase()) {
++                "aarch64", "arm64" -> listOf("arm64", "aarch64")
++                "amd64", "x64", "x86_64" -> listOf("x64")
++                else -> emptyList()
++            }
+             "macos" -> when (System.getProperty("os.arch").lowercase()) {
+                 "aarch64", "arm64" -> listOf("arm64", "aarch64")
+                 "amd64", "x64", "x86_64" -> listOf("x86_64")
+@@ -271,7 +280,11 @@ internal object NativePlayerBridge {
+         )
+         val runtimeDirs = runtimeRoots.flatMap { root ->
+             nativeArchitectureDirectoryNames(platformDir).map(root::resolve)
+-        } + runtimeRoots
++        } + if (platformDir == "windows" && nativeArchitectureDirectoryNames(platformDir).firstOrNull() == "arm64") {
++            emptyList()
++        } else {
++            runtimeRoots
++        }
+         runtimeDirs.firstOrNull(File::isDirectory)
+             ?.listFiles { file -> file.isFile }
+             ?.forEach { runtimeFile ->
+diff --git a/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/plugins/runtime/PluginRuntime.desktop.kt b/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/plugins/runtime/PluginRuntime.desktop.kt
+index c41cb54f05bc33d03fca853d97665d4a2d249211..5d03ea6943fc3d91c08b0c05373a4eaefc4b5366 100644
+--- a/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/plugins/runtime/PluginRuntime.desktop.kt
++++ b/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/plugins/runtime/PluginRuntime.desktop.kt
+@@ -3,7 +3,20 @@ package com.nuvio.app.features.plugins.runtime
+ import com.dokar.quickjs.QuickJs
+ import kotlinx.coroutines.CoroutineDispatcher
+ import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.asCoroutineDispatcher
++import java.util.concurrent.Executors
+ 
+-internal val pluginDispatcher: CoroutineDispatcher = Dispatchers.Default
++internal val pluginDispatcher: CoroutineDispatcher =
++    if (System.getProperty("os.name", "").startsWith("Windows", ignoreCase = true) &&
++        System.getProperty("os.arch", "").lowercase() in setOf("aarch64", "arm64")) {
++        // QuickJS JNI 1.0.15 shares VM/class caches between runtimes without
++        // synchronizing their lifetime. Serialize native calls on one thread;
++        // suspending provider requests can still overlap on this dispatcher.
++        Executors.newSingleThreadExecutor { task ->
++            Thread(task, "Nuvio-QuickJS").apply { isDaemon = true }
++        }.asCoroutineDispatcher()
++    } else {
++        Dispatchers.Default
++    }
+ 
+ internal fun QuickJs.configurePluginRuntime() = Unit
+diff --git a/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/updater/AppUpdaterPlatform.desktop.kt b/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/updater/AppUpdaterPlatform.desktop.kt
+index 97f47f5b63e7b9d9cc802bccf9289a804bacc750..079322aa70bd61b8ed52782e0c8a0f5dad6cc05a 100644
+--- a/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/updater/AppUpdaterPlatform.desktop.kt
++++ b/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/updater/AppUpdaterPlatform.desktop.kt
+@@ -197,6 +197,7 @@ private enum class DesktopUpdaterOs {
+                 fileExtensions = listOf(".msi", ".exe"),
+                 preferredNameFragments = archFragments + listOf("windows", "win"),
+                 fallbackNameFragments = listOf("universal", "all"),
++                requiredNameFragments = if ("arm64" in archFragments) archFragments else emptyList(),
+             )
+             MACOS -> AppUpdateAssetSelector(
+                 fileExtensions = listOf(".dmg", ".pkg"),
+diff --git a/composeApp/src/desktopMain/native/windows/com_callback.h b/composeApp/src/desktopMain/native/windows/com_callback.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..2655ec31f70f788c72d6a76c627062993a2d3762
+--- /dev/null
++++ b/composeApp/src/desktopMain/native/windows/com_callback.h
+@@ -0,0 +1,72 @@
++#pragma once
++
++// MinGW's WRL implements ComPtr, but not WRL::Callback. Keep the same COM
++// ownership semantics when building the bridge with the ARM64 LLVM toolchain.
++#ifdef __MINGW32__
++#include <atomic>
++#include <new>
++#include <utility>
++#include <wrl/client.h>
++
++// The Microsoft SDK has MIDL UUID attributes; MinGW uses these declarations
++// for __uuidof instead. These are the SDK's stable COM interface identifiers.
++__CRT_UUID_DECL(ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler, 0x4e8a3389, 0xc9d8, 0x4bd2, 0xb6, 0xb5, 0x12, 0x4f, 0xee, 0x6c, 0xc1, 0x4d)
++__CRT_UUID_DECL(ICoreWebView2CreateCoreWebView2ControllerCompletedHandler, 0x6c4819f3, 0xc9b7, 0x4260, 0x81, 0x27, 0xc9, 0xf5, 0xbd, 0xe7, 0xf6, 0x8c)
++__CRT_UUID_DECL(ICoreWebView2Controller2, 0xc979903e, 0xd4ca, 0x4228, 0x92, 0xeb, 0x47, 0xee, 0x3f, 0xa9, 0x6e, 0xab)
++__CRT_UUID_DECL(ICoreWebView2AcceleratorKeyPressedEventHandler, 0xb29c7e28, 0xfa79, 0x41a8, 0x8e, 0x44, 0x65, 0x81, 0x1c, 0x76, 0xdc, 0xb2)
++__CRT_UUID_DECL(ICoreWebView2WebMessageReceivedEventHandler, 0x57213f19, 0x00e6, 0x49fa, 0x8e, 0x07, 0x89, 0x8e, 0xa0, 0x1e, 0xcb, 0xd2)
++__CRT_UUID_DECL(ICoreWebView2NavigationCompletedEventHandler, 0xd33a35bf, 0x1c49, 0x4f98, 0x93, 0xab, 0x00, 0x6e, 0x05, 0x33, 0xfe, 0x1c)
++
++namespace nuvio {
++template <typename Interface, typename Function, typename Signature>
++class ComCallback;
++
++template <typename Interface, typename Function, typename... Args>
++class ComCallback<Interface, Function, HRESULT (STDMETHODCALLTYPE Interface::*)(Args...)>
++    final : public Interface {
++public:
++    explicit ComCallback(Function function) : function_(std::move(function)) {}
++
++    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void **object) override {
++        if (!object) return E_POINTER;
++        *object = nullptr;
++        if (IsEqualIID(iid, __uuidof(IUnknown)) || IsEqualIID(iid, __uuidof(Interface))) {
++            *object = static_cast<Interface *>(this);
++            AddRef();
++            return S_OK;
++        }
++        return E_NOINTERFACE;
++    }
++    ULONG STDMETHODCALLTYPE AddRef() override { return ++references_; }
++    ULONG STDMETHODCALLTYPE Release() override {
++        const ULONG count = --references_;
++        if (count == 0) delete this;
++        return count;
++    }
++    HRESULT STDMETHODCALLTYPE Invoke(Args... args) override {
++        // C++ exceptions must not escape a COM boundary.
++        try {
++            return function_(args...);
++        } catch (const std::bad_alloc &) {
++            return E_OUTOFMEMORY;
++        } catch (...) {
++            return E_FAIL;
++        }
++    }
++
++private:
++    std::atomic<ULONG> references_{1};
++    Function function_;
++};
++
++template <typename Interface, typename Function>
++Microsoft::WRL::ComPtr<Interface> Callback(Function function) {
++    Microsoft::WRL::ComPtr<Interface> result;
++    result.Attach(new ComCallback<Interface, Function, decltype(&Interface::Invoke)>(std::move(function)));
++    return result;
++}
++} // namespace nuvio
++using nuvio::Callback;
++#else
++using Microsoft::WRL::Callback;
++#endif
+diff --git a/composeApp/src/desktopMain/native/windows/player_bridge.cpp b/composeApp/src/desktopMain/native/windows/player_bridge.cpp
+index f6d4d9b718ef446758958f1e8289964575ba77b5..8b790a4badea6de294bf2b42b635ce390f1e2bb3 100644
+--- a/composeApp/src/desktopMain/native/windows/player_bridge.cpp
++++ b/composeApp/src/desktopMain/native/windows/player_bridge.cpp
+@@ -8,6 +8,7 @@
+ #include <shlobj.h>
+ #include <wrl.h>
+ #include <WebView2.h>
++#include "com_callback.h"
+ #include <jni.h>
+ 
+ #include <algorithm>
+@@ -30,7 +31,6 @@
+ #include <unordered_map>
+ #include <vector>
+ 
+-using Microsoft::WRL::Callback;
+ using Microsoft::WRL::ComPtr;
+ 
+ extern "C" {
+diff --git a/composeApp/src/desktopTest/kotlin/com/nuvio/app/WindowsScrollSettingsTest.kt b/composeApp/src/desktopTest/kotlin/com/nuvio/app/WindowsScrollSettingsTest.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..05bb03a360af8e00a429e8f7321dd9610bebd591
+--- /dev/null
++++ b/composeApp/src/desktopTest/kotlin/com/nuvio/app/WindowsScrollSettingsTest.kt
+@@ -0,0 +1,38 @@
++@file:Suppress("INVISIBLE_REFERENCE", "INVISIBLE_MEMBER")
++
++package com.nuvio.app
++
++import androidx.compose.foundation.gestures.ScrollConfig
++import androidx.compose.ui.geometry.Offset
++import androidx.compose.ui.input.pointer.PointerEvent
++import androidx.compose.ui.unit.Density
++import androidx.compose.ui.unit.IntSize
++import kotlin.test.Test
++import kotlin.test.assertEquals
++import kotlin.test.assertFalse
++import kotlin.test.assertTrue
++
++class WindowsScrollSettingsTest {
++    @Test fun scaleKeepsDirectionAndFractionalInput() {
++        val platform = object : ScrollConfig {
++            override val isSmoothScrollingEnabled = false
++            override fun Density.calculateMouseWheelScroll(event: PointerEvent, bounds: IntSize) = Offset(0.5f, -200f)
++        }
++        val config = WindowsScrollConfig(platform, 0.45f)
++        val result = with(config) { with(Density(1f)) { calculateMouseWheelScroll(PointerEvent(emptyList()), IntSize(800, 600)) } }
++        assertEquals(Offset(0.225f, -90f), result)
++        assertFalse(config.isSmoothScrollingEnabled)
++    }
++
++    @Test fun precisionDetectionDoesNotTreatWholeWheelNotchesAsTouchpad() {
++        assertTrue(isPrecisionWheelRotation(0.125, 0))
++        assertTrue(isPrecisionWheelRotation(-1.5, -1))
++        assertFalse(isPrecisionWheelRotation(1.0, 1))
++        assertFalse(isPrecisionWheelRotation(Double.NaN, 0))
++    }
++
++    @Test fun invalidOverridesUseSafeDefault() {
++        listOf(null, "bad", "NaN", "Infinity", "0", "-1", "9").forEach { assertEquals(0.45f, windowsScrollScale(it)) }
++        assertEquals(0.7f, windowsScrollScale("0.7"))
++    }
++}
+diff --git a/composeApp/src/desktopTest/kotlin/com/nuvio/app/core/ui/WindowActivityTest.kt b/composeApp/src/desktopTest/kotlin/com/nuvio/app/core/ui/WindowActivityTest.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..d971617af63986121bead94392f9ee6b361c4990
+--- /dev/null
++++ b/composeApp/src/desktopTest/kotlin/com/nuvio/app/core/ui/WindowActivityTest.kt
+@@ -0,0 +1,33 @@
++package com.nuvio.app.core.ui
++
++import androidx.compose.runtime.CompositionLocalProvider
++import androidx.compose.runtime.State
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.ui.test.junit4.createComposeRule
++import org.junit.Rule
++import kotlin.test.Test
++import kotlin.test.assertEquals
++import kotlin.test.assertTrue
++
++class WindowActivityTest {
++    @get:Rule val compose = createComposeRule()
++
++    @Test fun loadingAnimationStopsWhenWindowIsInactiveAndResumes() {
++        val active = mutableStateOf(true)
++        lateinit var frame: State<Float>
++        compose.mainClock.autoAdvance = false
++        compose.setContent {
++            CompositionLocalProvider(LocalWindowActive provides active.value) {
++                frame = rememberLoadingIndicatorFrame(true)
++            }
++        }
++        compose.mainClock.advanceTimeBy(500)
++        compose.runOnIdle { assertTrue(frame.value > 0f); active.value = false }
++        compose.mainClock.advanceTimeByFrame()
++        compose.mainClock.advanceTimeBy(1000)
++        compose.runOnIdle { assertEquals(0f, frame.value); active.value = true }
++        compose.mainClock.advanceTimeByFrame()
++        compose.mainClock.advanceTimeBy(500)
++        compose.runOnIdle { assertTrue(frame.value > 0f) }
++    }
++}
+diff --git a/composeApp/src/desktopTest/kotlin/com/nuvio/app/features/plugins/WindowsPluginRuntimeTest.kt b/composeApp/src/desktopTest/kotlin/com/nuvio/app/features/plugins/WindowsPluginRuntimeTest.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..32660d9a5c057278d2daa46bd0f88f0d83c6ab37
+--- /dev/null
++++ b/composeApp/src/desktopTest/kotlin/com/nuvio/app/features/plugins/WindowsPluginRuntimeTest.kt
+@@ -0,0 +1,66 @@
++package com.nuvio.app.features.plugins
++
++import com.nuvio.app.features.plugins.runtime.PluginRuntime
++import com.nuvio.app.features.plugins.runtime.pluginDispatcher
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.async
++import kotlinx.coroutines.awaitAll
++import kotlinx.coroutines.coroutineScope
++import kotlinx.coroutines.runBlocking
++import kotlinx.coroutines.withContext
++import kotlinx.coroutines.yield
++import org.junit.Assume.assumeTrue
++import kotlin.test.Test
++import kotlin.test.assertEquals
++
++class WindowsPluginRuntimeTest {
++    private fun requireWindowsArm64() {
++        assumeTrue(System.getProperty("os.name").startsWith("Windows", ignoreCase = true) &&
++            System.getProperty("os.arch").lowercase() in setOf("aarch64", "arm64"))
++    }
++
++    @Test fun nativeCallsKeepThreadAffinityAcrossSuspension() = runBlocking {
++        requireWindowsArm64()
++        val threads = coroutineScope {
++            (0 until 32).map {
++                async(Dispatchers.Default) {
++                    withContext(pluginDispatcher) {
++                        val before = Thread.currentThread().id
++                        yield()
++                        assertEquals(before, Thread.currentThread().id)
++                        before
++                    }
++                }
++            }.awaitAll()
++        }
++        assertEquals(1, threads.distinct().size)
++    }
++
++    @Test fun overlappingRuntimeLifetimesKeepSharedNativeCachesValid() = runBlocking {
++        requireWindowsArm64()
++        repeat(8) { round ->
++            val results = coroutineScope {
++                (0 until 32).map { index ->
++                    async(Dispatchers.Default) {
++                        PluginRuntime.executePlugin(
++                            code = """
++                                module.exports.getStreams = async function(id) {
++                                    await Promise.resolve();
++                                    return [{ title: "Native lifetime " + id, url: "https://example.test/" + id + ".mp4" }];
++                                };
++                            """.trimIndent(),
++                            tmdbId = "$round-$index",
++                            mediaType = "movie",
++                            season = null,
++                            episode = null,
++                            scraperId = "native-lifetime-$round-$index",
++                        )
++                    }
++                }.awaitAll()
++            }
++            results.forEachIndexed { index, streams ->
++                assertEquals("https://example.test/$round-$index.mp4", streams.single().url)
++            }
++        }
++    }
++}

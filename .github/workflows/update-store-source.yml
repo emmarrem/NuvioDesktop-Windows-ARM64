@@ -22,6 +22,7 @@ concurrency:
 
 jobs:
   update:
+    if: github.repository == 'NuvioMedia/NuvioDesktop'
     name: Update store.json
     runs-on: ubuntu-latest
     env:

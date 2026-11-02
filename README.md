@@ -3,13 +3,8 @@
 
   <img src="https://nuvio.tv/assets/nuvio-app-logo-wordmark.webp" alt="Nuvio" width="320" />
 
-  <p>
-    A free, open-source media app for Windows, macOS, and Linux.
-    <br />
-    Bring your own sources. Nuvio turns them into a library with artwork, ratings, subtitles, and your place saved on every screen.
-  </p>
 
-  [Website](https://nuvio.tv) · [Official GitHub Releases](https://github.com/NuvioMedia/NuvioDesktop/releases/latest) · [Support Nuvio](https://nuvio.tv/support)
+  [Website](https://nuvio.tv) · [Support Nuvio](https://nuvio.tv/support)
 
 </div>
 
@@ -25,15 +20,13 @@ The goal is to maintain compatibility with the original Nuvio Desktop applicatio
 
 This is an independent community effort and is not officially maintained or endorsed by the Nuvio development team.
 
-## ⚠️ Alpha Software - Testers Only
+## ⚠️ Alpha Software
 
-Nuvio Desktop is currently in alpha and is intended only for testers. It is under active development and is not suitable for daily use.
+Nuvio Desktop is currently in alpha. It is under active development and is not suitable for daily use.
 
 The Windows ARM64 implementation is also experimental. Expect potential compatibility issues, build failures, and breaking changes.
 
 Features, settings, stored data, and compatibility may change or stop working without notice.
-
-Please report any ARM64-specific issues encountered during testing.
 
 ## Get Nuvio Desktop
 
@@ -44,67 +37,6 @@ This fork focuses on building Nuvio Desktop for Windows ARM64.
 Check this fork's **GitHub Releases** section for ARM64 builds, if available.
 
 For instructions on building a native Windows ARM64 version, see [Windows ARM64](docs/windows-arm64.md).
-
-### Official Builds
-
-For officially supported platforms, download Nuvio Desktop from the [official GitHub Releases](https://github.com/NuvioMedia/NuvioDesktop/releases/latest).
-
-- Windows x64: MSI installer
-- macOS: DMG installer
-- Linux: DEB, RPM, Flatpak, or AppImage
-
-## Build from Source
-
-Clone this fork and navigate to the project directory:
-
-```bash
-git clone https://github.com/emmarrem/NuvioDesktop/tree/Dev
-cd NuvioDesktop
-```
-
-### Run the App
-
-```bash
-./gradlew :composeApp:run
-```
-
-On Windows PowerShell:
-
-```powershell
-.\gradlew.bat :composeApp:run
-```
-
-For a dedicated native Windows ARM64 build, see [Windows ARM64](docs/windows-arm64.md).
-
-### Package the App
-
-Build a release package for the current host:
-
-```bash
-./gradlew :composeApp:packageReleaseDistributionForCurrentOS
-```
-
-For platform-specific packaging:
-
-**Windows PowerShell:**
-
-```powershell
-.\gradlew.bat :composeApp:packageReleaseMsi --rerun-tasks
-```
-
-**macOS:**
-
-```bash
-./scripts/build-macos-release-dmgs.sh --package-only
-```
-
-**Linux:**
-
-```bash
-./gradlew :composeApp:packageReleaseDeb
-```
-
-**Note:** The standard Windows packaging command does not automatically guarantee a native ARM64 installer. Refer to the ARM64-specific build instructions for the required configuration.
 
 The shared application is built with Kotlin Multiplatform and Compose Multiplatform.
 

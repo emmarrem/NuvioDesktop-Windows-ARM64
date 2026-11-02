@@ -1,80 +1,54 @@
+ 
 <div align="center">
 
   <img src="https://nuvio.tv/assets/nuvio-app-logo-wordmark.webp" alt="Nuvio" width="320" />
 
-  <p>
-    A free, open-source media app for Windows, macOS, and Linux.
-    <br />
-    Bring your own sources. Nuvio turns them into a library with artwork, ratings, subtitles, and your place saved on every screen.
-  </p>
 
-  [Website](https://nuvio.tv) · [GitHub releases](https://github.com/NuvioMedia/NuvioDesktop/releases/latest) · [Support Nuvio](https://nuvio.tv/support)
+  [Website](https://nuvio.tv) · [Support Nuvio](https://nuvio.tv/support)
 
 </div>
 
-## ⚠️ Alpha Software - Slow Development - Testers Only
+## Windows ARM64 Fork
 
-Nuvio Desktop is currently in alpha and is intended only for testers. It is under development and is not suitable for daily use.
+This repository is an **unofficial fork of [Nuvio Desktop](https://github.com/NuvioMedia/NuvioDesktop)**, created specifically to bring native Windows ARM64 support to the application.
 
-Expect breaking changes with every update. Features, settings, stored data, and compatibility may change or stop working without notice. Do not rely on this build as your primary media app, and report any issues you encounter during testing.
+The official Nuvio Desktop project currently does not provide a dedicated Windows ARM64 build. This fork aims to address that gap by adapting the existing application and its build configuration to support Windows on ARM devices, including Snapdragon-powered PCs.
+
+**This fork has been developed with the assistance of OpenAI's ChatGPT Codex.**
+
+The goal is to maintain compatibility with the original Nuvio Desktop application while enabling native ARM64 builds, without relying on x64 emulation.
+
+This is an independent community effort and is not officially maintained or endorsed by the Nuvio development team.
+
+## ⚠️ Alpha Software
+
+Nuvio Desktop is currently in alpha. It is under active development and is not suitable for daily use.
+
+The Windows ARM64 implementation is also experimental. Expect potential compatibility issues, build failures, and breaking changes.
+
+Features, settings, stored data, and compatibility may change or stop working without notice.
 
 ## Get Nuvio Desktop
 
-Download the latest build from [GitHub Releases](https://github.com/NuvioMedia/NuvioDesktop/releases/latest).
+### Windows ARM64
 
-- Windows: MSI installer
-- macOS: DMG installer
-- Linux: DEB, RPM, Flatpak, or AppImage
+This fork focuses on building Nuvio Desktop for Windows ARM64.
 
-## Build from source
+Check this fork's **GitHub Releases** section for ARM64 builds, if available.
 
-```bash
-git clone https://github.com/NuvioMedia/NuvioDesktop.git
-cd NuvioDesktop
-```
+For instructions on building a native Windows ARM64 version, see [Windows ARM64](docs/windows-arm64.md).
 
-### Run the app
+The shared application is built with Kotlin Multiplatform and Compose Multiplatform.
 
-```bash
-./gradlew :composeApp:run
-```
+## Credits and Acknowledgements
 
-On Windows PowerShell:
+- **[NuvioMedia](https://github.com/NuvioMedia/NuvioDesktop)** — For developing and maintaining the original open-source Nuvio Desktop application.
+- **[OpenAI ChatGPT Codex](https://openai.com/codex/)** — Used to assist with the development, code modifications, and build configuration changes needed for Windows ARM64 compatibility.
 
-```powershell
-.\gradlew.bat :composeApp:run
-```
-
-### Package the app
-
-Build a release package for the current host:
-
-```bash
-./gradlew :composeApp:packageReleaseDistributionForCurrentOS
-```
-
-For platform-specific packaging:
-
-Windows PowerShell:
-
-```powershell
-.\gradlew.bat :composeApp:packageReleaseMsi --rerun-tasks
-```
-
-macOS:
-
-```bash
-./scripts/build-macos-release-dmgs.sh --package-only
-```
-
-Linux:
-
-```bash
-./gradlew :composeApp:packageReleaseDeb
-```
-
-The shared app is built with Kotlin Multiplatform and Compose Multiplatform.
+This fork builds upon the work of the original Nuvio Desktop contributors. All credit for the original application belongs to its respective developers.
 
 ## License
 
 [GNU General Public License v3.0](./LICENSE)
+
+This fork retains the original project's GPL v3.0 license.

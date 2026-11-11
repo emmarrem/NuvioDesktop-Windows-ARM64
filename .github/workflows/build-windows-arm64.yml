@@ -150,6 +150,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           UPSTREAM_TAG: ${{ steps.release.outputs.tag }}
+          MAKE_LATEST: ${{ !inputs.release_tag || inputs.release_tag == 'latest' }}
         run: |
           $tag = "$env:UPSTREAM_TAG-arm64.1"
           $existing = gh release view $tag --repo $env:GITHUB_REPOSITORY --json isDraft 2>$null
@@ -163,7 +164,7 @@ jobs:
           if ($files.Count -ne 3) { throw 'Expected ZIP, checksum and build information.' }
           gh release upload $tag --repo $env:GITHUB_REPOSITORY --clobber @($files.FullName)
           if ($LASTEXITCODE) { throw 'Release upload failed; draft retained.' }
-          gh release edit $tag --repo $env:GITHUB_REPOSITORY --draft=false --prerelease --latest=false
+          gh release edit $tag --repo $env:GITHUB_REPOSITORY --draft=false --prerelease=false "--latest=$env:MAKE_LATEST"
           if ($LASTEXITCODE) { throw 'Release publication failed.' }
       - name: Remove temporary client configuration
         if: always()

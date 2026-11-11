@@ -1,0 +1,30 @@
+name: Promote existing Windows ARM64 releases
+
+on:
+  push:
+    branches: [Dev]
+    paths: [.github/workflows/promote-windows-arm64-releases.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  promote:
+    if: github.repository == 'emmarrem/NuvioDesktop-Windows-ARM64'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/github-script@v8
+        with:
+          script: |
+            const targets = [
+              [432018799, '0.1.34-alpha-arm64.1', 'false'],
+              [437179279, '0.1.35-alpha-arm64.1', 'true'],
+            ];
+            for (const [release_id, tag, make_latest] of targets) {
+              const {data: release} = await github.rest.repos.getRelease({...context.repo, release_id});
+              if (release.draft || release.tag_name !== tag) throw new Error('Unexpected release: ' + tag);
+              await github.rest.repos.updateRelease({...context.repo, release_id, prerelease: false, make_latest});
+              core.info('Promoted ' + tag);
+            }

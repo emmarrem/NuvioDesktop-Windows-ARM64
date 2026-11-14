@@ -1,5 +1,5 @@
 diff --git a/composeApp/build.gradle.kts b/composeApp/build.gradle.kts
-index a5780ab..3f0fa7b 100644
+index eb6d13c487bbb72730aa4942b729e83fdab36ae3..8e6fe58c85e0ef7ccb2c8f4e3a89245b9db87ebd 100644
 --- a/composeApp/build.gradle.kts
 +++ b/composeApp/build.gradle.kts
 @@ -1,5 +1,6 @@
@@ -243,7 +243,7 @@ index a5780ab..3f0fa7b 100644
      val desktopNativePlayerTasks = setOf(
          "run",
          "runRelease",
-@@ -1694,3 +1807,14 @@ configurations.all {
+@@ -1701,3 +1814,14 @@ configurations.all {
      exclude(group = "androidx.media3", module = "media3-datasource-okhttp")
      exclude(group = "androidx.media3", module = "media3-extractor")
  }
@@ -259,7 +259,7 @@ index a5780ab..3f0fa7b 100644
 +    }
 +}
 diff --git a/composeApp/src/commonMain/kotlin/com/nuvio/app/RootTabHost.kt b/composeApp/src/commonMain/kotlin/com/nuvio/app/RootTabHost.kt
-index 0b1f0b5..6993d9a 100644
+index 0b1f0b50ac4457770869bd38f043ae3307ea3de0..6993d9ab08d6a99c0bd5084c8a2b29ade2eafbb9 100644
 --- a/composeApp/src/commonMain/kotlin/com/nuvio/app/RootTabHost.kt
 +++ b/composeApp/src/commonMain/kotlin/com/nuvio/app/RootTabHost.kt
 @@ -24,6 +24,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -280,7 +280,7 @@ index 0b1f0b5..6993d9a 100644
      DisposableEffect(selectedTab, hostActive, profileId) {
          onDispose { focusManager.clearFocus(force = true) }
 diff --git a/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/LoadingIndicator.kt b/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/LoadingIndicator.kt
-index 0f70c1d..9bb3f9d 100644
+index 0f70c1d2405587a8c5e0abcb11f720c65ebbee0e..9bb3f9d3df2238abce838eb4c84f2010da0ccfa5 100644
 --- a/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/LoadingIndicator.kt
 +++ b/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/LoadingIndicator.kt
 @@ -74,7 +74,7 @@ fun NuvioLoadingIndicator(
@@ -293,7 +293,7 @@ index 0f70c1d..9bb3f9d 100644
              initialValue = 0f,
              targetValue = 60f,
 diff --git a/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/ScreenActivity.kt b/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/ScreenActivity.kt
-index c302308..2e0437c 100644
+index c30230834fda927b75e690364701a97b1f7886bb..2e0437c7c53ba08a1be4d00d422f82d671ee812a 100644
 --- a/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/ScreenActivity.kt
 +++ b/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/ScreenActivity.kt
 @@ -6,12 +6,13 @@ import androidx.compose.runtime.compositionLocalOf
@@ -312,7 +312,7 @@ index c302308..2e0437c 100644
      LaunchedEffect(active, *keys) { block(active) }
  }
 diff --git a/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/Shimmer.kt b/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/Shimmer.kt
-index cef08ed..fb099aa 100644
+index cef08ed5ad126c616094033c5efca04084dcf0c9..fb099aa9bf3e2a2248c652147df3dcd664b033ab 100644
 --- a/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/Shimmer.kt
 +++ b/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/Shimmer.kt
 @@ -68,7 +68,7 @@ internal fun rememberSkeletonProgress(): State<Float> {
@@ -325,7 +325,7 @@ index cef08ed..fb099aa 100644
          if (animation != null && active) animation.consumers++
          onDispose {
 diff --git a/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/jelly/JellyNavigationBar.kt b/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/jelly/JellyNavigationBar.kt
-index 16acba3..941d543 100644
+index 16acba370f254789b7862e84efa245fb4cd4dc20..941d5436ca969b70fa82f508c9d6439c29e11902 100644
 --- a/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/jelly/JellyNavigationBar.kt
 +++ b/composeApp/src/commonMain/kotlin/com/nuvio/app/core/ui/jelly/JellyNavigationBar.kt
 @@ -27,6 +27,7 @@ import androidx.compose.ui.unit.LayoutDirection
@@ -349,7 +349,7 @@ index 16acba3..941d543 100644
          while (motion.running) {
              withFrameNanos { now ->
 diff --git a/composeApp/src/commonMain/kotlin/com/nuvio/app/features/library/LibraryDownloadsButton.kt b/composeApp/src/commonMain/kotlin/com/nuvio/app/features/library/LibraryDownloadsButton.kt
-index 526e62a..755ab47 100644
+index 526e62afe17ff520e053a996556a5b7e8909964c..755ab47e8b9e38f9c29ca1427a5c11a027f27ccd 100644
 --- a/composeApp/src/commonMain/kotlin/com/nuvio/app/features/library/LibraryDownloadsButton.kt
 +++ b/composeApp/src/commonMain/kotlin/com/nuvio/app/features/library/LibraryDownloadsButton.kt
 @@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.TileMode
@@ -372,7 +372,7 @@ index 526e62a..755ab47 100644
      val dimAlpha = MaterialTheme.nuvio.opacity.overlayLight
      val colors = palette.accentGradient.takeIf { it.size >= 2 }
 diff --git a/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/AppUpdaterPlatform.kt b/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/AppUpdaterPlatform.kt
-index 0876958..f67a6f6 100644
+index 08769589c17ba2c87b0a586386101d18291219c7..f67a6f640d78ca2265a6f120ed40e9b080ba7b18 100644
 --- a/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/AppUpdaterPlatform.kt
 +++ b/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/AppUpdaterPlatform.kt
 @@ -13,6 +13,7 @@ data class AppUpdateAssetSelector(
@@ -384,7 +384,7 @@ index 0876958..f67a6f6 100644
  
  expect object AppUpdaterPlatform {
 diff --git a/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/AppUpdaterRepository.kt b/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/AppUpdaterRepository.kt
-index e172da3..5152038 100644
+index e172da38cde3d8b797e118732fd815fd9e920295..5152038514435b51ed20468d0ce2de0abba46093 100644
 --- a/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/AppUpdaterRepository.kt
 +++ b/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/AppUpdaterRepository.kt
 @@ -43,8 +43,11 @@ internal fun selectBestUpdateAsset(
@@ -403,7 +403,7 @@ index e172da3..5152038 100644
      if (updateAssets.size == 1) return updateAssets.first()
 diff --git a/composeApp/src/commonTest/kotlin/com/nuvio/app/features/updater/Arm64UpdateAssetTest.kt b/composeApp/src/commonTest/kotlin/com/nuvio/app/features/updater/Arm64UpdateAssetTest.kt
 new file mode 100644
-index 0000000..235c2a7
+index 0000000000000000000000000000000000000000..235c2a7061433392fc4e448cff2475e6e98ebe77
 --- /dev/null
 +++ b/composeApp/src/commonTest/kotlin/com/nuvio/app/features/updater/Arm64UpdateAssetTest.kt
 @@ -0,0 +1,32 @@
@@ -441,7 +441,7 @@ index 0000000..235c2a7
 +}
 diff --git a/composeApp/src/desktopMain/kotlin/com/nuvio/app/DesktopWindowActivity.kt b/composeApp/src/desktopMain/kotlin/com/nuvio/app/DesktopWindowActivity.kt
 new file mode 100644
-index 0000000..f7249e7
+index 0000000000000000000000000000000000000000..f7249e7cea6ec4903f3f046a43323a1352e134c9
 --- /dev/null
 +++ b/composeApp/src/desktopMain/kotlin/com/nuvio/app/DesktopWindowActivity.kt
 @@ -0,0 +1,33 @@
@@ -479,52 +479,25 @@ index 0000000..f7249e7
 +    CompositionLocalProvider(LocalWindowActive provides (focused && !minimized), content = content)
 +}
 diff --git a/composeApp/src/desktopMain/kotlin/com/nuvio/app/Main.kt b/composeApp/src/desktopMain/kotlin/com/nuvio/app/Main.kt
-index a4cb2db..b4ddfed 100644
+index deec8b12a2919c872871806ec66f1c5b4596e07f..b03aab941b97c9c9cb7f7c6799e1d69fe7e4ce8e 100644
 --- a/composeApp/src/desktopMain/kotlin/com/nuvio/app/Main.kt
 +++ b/composeApp/src/desktopMain/kotlin/com/nuvio/app/Main.kt
-@@ -215,21 +215,24 @@ fun main(args: Array<String>) {
-                 }
-             }
- 
--            if (smokePlayerUrl == null) {
--                ProvideDesktopWindowInsets(isFullscreen = windowState.placement == WindowPlacement.Fullscreen) {
--                    MiddleClickAutoscroll { App() }
--                }
--            } else {
--                // The player surface reads LocalNuvioPlatformDensity, which only
--                // NuvioTheme provides — the bare smoke harness must supply it too.
--                NuvioTheme {
--                    PlatformPlayerSurface(
--                        sourceUrl = smokePlayerUrl,
--                        modifier = Modifier.fillMaxSize(),
--                        onControllerReady = {},
--                        onSnapshot = {},
--                        onError = {},
--                    )
-+            DesktopScrollSettings {
-+                DesktopWindowActivity(window, minimized = windowState.isMinimized) {
-+                    if (smokePlayerUrl == null) {
-+                        ProvideDesktopWindowInsets(isFullscreen = windowState.placement == WindowPlacement.Fullscreen) {
-+                            MiddleClickAutoscroll { App() }
+@@ -232,7 +232,11 @@ fun main(args: Array<String>) {
+                     ProvideDesktopWindowInsets(
+                         isFullscreen = windowState.placement == WindowPlacement.Fullscreen,
+                     ) {
+-                        MiddleClickAutoscroll { App() }
++                        DesktopScrollSettings {
++                            DesktopWindowActivity(window, minimized = windowState.isMinimized) {
++                                MiddleClickAutoscroll { App() }
++                            }
 +                        }
-+                    } else {
-+                        // The smoke player also needs the theme's platform density.
-+                        NuvioTheme {
-+                            PlatformPlayerSurface(
-+                                sourceUrl = smokePlayerUrl,
-+                                modifier = Modifier.fillMaxSize(),
-+                                onControllerReady = {},
-+                                onSnapshot = {},
-+                                onError = {},
-+                            )
-+                        }
-+                    }
+                     }
                  }
-             }
-         }
+             } else {
 diff --git a/composeApp/src/desktopMain/kotlin/com/nuvio/app/WindowsScrollSettings.kt b/composeApp/src/desktopMain/kotlin/com/nuvio/app/WindowsScrollSettings.kt
 new file mode 100644
-index 0000000..e9868b2
+index 0000000000000000000000000000000000000000..e9868b240eeba9a4804755607a8b0dbd8e492bd7
 --- /dev/null
 +++ b/composeApp/src/desktopMain/kotlin/com/nuvio/app/WindowsScrollSettings.kt
 @@ -0,0 +1,62 @@
@@ -591,7 +564,7 @@ index 0000000..e9868b2
 +    CompositionLocalProvider(LocalScrollConfig provides config, content = content)
 +}
 diff --git a/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/p2p/DesktopEngineLibrary.kt b/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/p2p/DesktopEngineLibrary.kt
-index 300c0a8..4874030 100644
+index 300c0a8533f75165cbae4cb58682ca0441b7fe37..4874030b296a8644e8ed993b9b4a3f2d91e09b71 100644
 --- a/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/p2p/DesktopEngineLibrary.kt
 +++ b/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/p2p/DesktopEngineLibrary.kt
 @@ -34,7 +34,9 @@ internal object DesktopEngineLibrary {
@@ -629,10 +602,10 @@ index 300c0a8..4874030 100644
      private fun extractedLibrary(directory: String, name: String): File? {
          val resource = DesktopEngineLibrary::class.java
 diff --git a/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/player/desktop/NativePlayerBridge.kt b/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/player/desktop/NativePlayerBridge.kt
-index d9daf88..87af5e4 100644
+index 7c78fc633a39f3e421e16be9cea52b4aded299b7..0b118cfec5ada340944bddcff944d2cac7ae3127 100644
 --- a/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/player/desktop/NativePlayerBridge.kt
 +++ b/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/player/desktop/NativePlayerBridge.kt
-@@ -250,14 +250,23 @@ internal object NativePlayerBridge {
+@@ -258,14 +258,23 @@ internal object NativePlayerBridge {
              File("composeApp/build/native/$platformDir"),
              File("build/native/$platformDir"),
          )
@@ -657,7 +630,7 @@ index d9daf88..87af5e4 100644
              "macos" -> when (System.getProperty("os.arch").lowercase()) {
                  "aarch64", "arm64" -> listOf("arm64", "aarch64")
                  "amd64", "x64", "x86_64" -> listOf("x86_64")
-@@ -273,7 +282,11 @@ internal object NativePlayerBridge {
+@@ -281,7 +290,11 @@ internal object NativePlayerBridge {
          )
          val runtimeDirs = runtimeRoots.flatMap { root ->
              nativeArchitectureDirectoryNames(platformDir).map(root::resolve)
@@ -671,7 +644,7 @@ index d9daf88..87af5e4 100644
              ?.listFiles { file -> file.isFile }
              ?.forEach { runtimeFile ->
 diff --git a/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/plugins/runtime/PluginRuntime.desktop.kt b/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/plugins/runtime/PluginRuntime.desktop.kt
-index c41cb54..5d03ea6 100644
+index c41cb54f05bc33d03fca853d97665d4a2d249211..5d03ea6943fc3d91c08b0c05373a4eaefc4b5366 100644
 --- a/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/plugins/runtime/PluginRuntime.desktop.kt
 +++ b/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/plugins/runtime/PluginRuntime.desktop.kt
 @@ -3,7 +3,20 @@ package com.nuvio.app.features.plugins.runtime
@@ -697,7 +670,7 @@ index c41cb54..5d03ea6 100644
  
  internal fun QuickJs.configurePluginRuntime() = Unit
 diff --git a/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/updater/AppUpdaterPlatform.desktop.kt b/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/updater/AppUpdaterPlatform.desktop.kt
-index 97f47f5..079322a 100644
+index 97f47f5b63e7b9d9cc802bccf9289a804bacc750..079322aa70bd61b8ed52782e0c8a0f5dad6cc05a 100644
 --- a/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/updater/AppUpdaterPlatform.desktop.kt
 +++ b/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/updater/AppUpdaterPlatform.desktop.kt
 @@ -197,6 +197,7 @@ private enum class DesktopUpdaterOs {
@@ -710,7 +683,7 @@ index 97f47f5..079322a 100644
                  fileExtensions = listOf(".dmg", ".pkg"),
 diff --git a/composeApp/src/desktopMain/native/windows/com_callback.h b/composeApp/src/desktopMain/native/windows/com_callback.h
 new file mode 100644
-index 0000000..2655ec3
+index 0000000000000000000000000000000000000000..2655ec31f70f788c72d6a76c627062993a2d3762
 --- /dev/null
 +++ b/composeApp/src/desktopMain/native/windows/com_callback.h
 @@ -0,0 +1,72 @@
@@ -787,7 +760,7 @@ index 0000000..2655ec3
 +using Microsoft::WRL::Callback;
 +#endif
 diff --git a/composeApp/src/desktopMain/native/windows/player_bridge.cpp b/composeApp/src/desktopMain/native/windows/player_bridge.cpp
-index 4013597..018c487 100644
+index 8d9ea4050050c90ab027e40619fae926ecf829e5..1e2d4e445911d4252157ce6bf84be4e4a1dc13e6 100644
 --- a/composeApp/src/desktopMain/native/windows/player_bridge.cpp
 +++ b/composeApp/src/desktopMain/native/windows/player_bridge.cpp
 @@ -8,6 +8,7 @@
@@ -798,7 +771,7 @@ index 4013597..018c487 100644
  #include <jni.h>
  
  #include <algorithm>
-@@ -30,7 +31,6 @@
+@@ -31,7 +32,6 @@
  #include <unordered_map>
  #include <vector>
  
@@ -808,7 +781,7 @@ index 4013597..018c487 100644
  extern "C" {
 diff --git a/composeApp/src/desktopTest/kotlin/com/nuvio/app/WindowsScrollSettingsTest.kt b/composeApp/src/desktopTest/kotlin/com/nuvio/app/WindowsScrollSettingsTest.kt
 new file mode 100644
-index 0000000..05bb03a
+index 0000000000000000000000000000000000000000..05bb03a360af8e00a429e8f7321dd9610bebd591
 --- /dev/null
 +++ b/composeApp/src/desktopTest/kotlin/com/nuvio/app/WindowsScrollSettingsTest.kt
 @@ -0,0 +1,38 @@
@@ -852,7 +825,7 @@ index 0000000..05bb03a
 +}
 diff --git a/composeApp/src/desktopTest/kotlin/com/nuvio/app/core/ui/WindowActivityTest.kt b/composeApp/src/desktopTest/kotlin/com/nuvio/app/core/ui/WindowActivityTest.kt
 new file mode 100644
-index 0000000..d971617
+index 0000000000000000000000000000000000000000..d971617af63986121bead94392f9ee6b361c4990
 --- /dev/null
 +++ b/composeApp/src/desktopTest/kotlin/com/nuvio/app/core/ui/WindowActivityTest.kt
 @@ -0,0 +1,33 @@
@@ -891,7 +864,7 @@ index 0000000..d971617
 +}
 diff --git a/composeApp/src/desktopTest/kotlin/com/nuvio/app/features/plugins/WindowsPluginRuntimeTest.kt b/composeApp/src/desktopTest/kotlin/com/nuvio/app/features/plugins/WindowsPluginRuntimeTest.kt
 new file mode 100644
-index 0000000..32660d9
+index 0000000000000000000000000000000000000000..32660d9a5c057278d2daa46bd0f88f0d83c6ab37
 --- /dev/null
 +++ b/composeApp/src/desktopTest/kotlin/com/nuvio/app/features/plugins/WindowsPluginRuntimeTest.kt
 @@ -0,0 +1,66 @@

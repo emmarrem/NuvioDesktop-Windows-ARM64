@@ -32,6 +32,7 @@ jobs:
     outputs:
       tag: ${{ steps.select.outputs.tag }}
       publish: ${{ steps.select.outputs.publish }}
+      revision: ${{ steps.select.outputs.revision }}
     steps:
       - uses: actions/github-script@v8
         id: select
@@ -40,7 +41,11 @@ jobs:
         with:
           script: |
             if (context.eventName === 'release') {
-              core.setOutput('tag', context.payload.release.tag_name.replace(/-arm64(?:\.\d+)?$/, ''));
+              const tag = context.payload.release.tag_name;
+              const revision = tag.match(/-arm64(?:\.(\d+))?$/);
+              if (!revision) throw new Error('Use an ARM64 fork release tag ending in -arm64.N.');
+              core.setOutput('tag', tag.slice(0, revision.index));
+              core.setOutput('revision', revision[1] || '1');
               return;
             }
             const releases = await github.paginate(github.rest.repos.listReleases,
@@ -56,7 +61,9 @@ jobs:
               core.info('Upstream installer/checksums are not ready; next hourly check will retry.');
               return;
             }
-            const tag = release.tag_name + '-arm64.1';
+            // 0.1.36 already shipped as a ZIP only. Publish the installer/updater as a new revision.
+            const revision = release.tag_name === '0.1.36-alpha' ? '2' : '1';
+            const tag = release.tag_name + '-arm64.' + revision;
             try {
               const {data:existing} = await github.rest.repos.getReleaseByTag({...context.repo,tag});
               if (!existing.draft) {
@@ -68,6 +75,7 @@ jobs:
               }
             } catch (error) { if (error.status !== 404) throw error; }
             core.setOutput('tag', release.tag_name);
+            core.setOutput('revision', revision);
             core.setOutput('publish', 'true');
   build:
     needs: watch
@@ -107,15 +115,27 @@ jobs:
             [IO.File]::WriteAllBytes("$env:GITHUB_WORKSPACE/custom-client.properties", [Convert]::FromBase64String($env:CONFIG_BASE64))
           }
       - name: Build and test native ARM64 app
+        env:
+          ARM64_REVISION: ${{ needs.watch.outputs.revision }}
         run: |
           $options = @{
             SourceDirectory = "$env:GITHUB_WORKSPACE/source"
             WorkDirectory = "$env:GITHUB_WORKSPACE/build/windows-arm64"
             OfficialInstaller = "$env:GITHUB_WORKSPACE/release-input/official-windows.msi"
             RunTests = $true
+            ReleaseRevision = [int]$env:ARM64_REVISION
           }
           if (Test-Path custom-client.properties) { $options.LocalProperties = "$env:GITHUB_WORKSPACE/custom-client.properties" }
           ./scripts/windows/build-arm64.ps1 @options
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build and smoke-test the ARM64 Windows installer
+        env:
+          UPSTREAM_TAG: ${{ steps.release.outputs.tag }}
+          ARM64_REVISION: ${{ needs.watch.outputs.revision }}
+        run: |
+          ./scripts/windows/build-arm64-installer.ps1 -AppDirectory source/composeApp/build/compose/binaries/main-release/app/Nuvio -OutputDirectory build/windows-arm64 -VersionName $env:UPSTREAM_TAG -Revision $env:ARM64_REVISION -SmokeTest
       - name: Record source revisions
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
@@ -134,6 +154,7 @@ jobs:
           name: Nuvio-Windows-arm64-${{ steps.release.outputs.tag }}
           path: |
             build/windows-arm64/Nuvio-Windows-arm64-*-portable.zip
+            build/windows-arm64/Nuvio-Windows-arm64-*.msi
             build/windows-arm64/Nuvio-Windows-arm64-*.sha256
             build/windows-arm64/build-info.json
           if-no-files-found: error
@@ -150,18 +171,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           UPSTREAM_TAG: ${{ steps.release.outputs.tag }}
+          ARM64_REVISION: ${{ needs.watch.outputs.revision }}
           MAKE_LATEST: ${{ !inputs.release_tag || inputs.release_tag == 'latest' }}
         run: |
-          $tag = "$env:UPSTREAM_TAG-arm64.1"
+          $tag = "$env:UPSTREAM_TAG-arm64.$env:ARM64_REVISION"
           $existing = gh release view $tag --repo $env:GITHUB_REPOSITORY --json isDraft 2>$null
           if ($LASTEXITCODE -eq 0) {
             if (-not ($existing | ConvertFrom-Json).isDraft) { throw 'Refusing to replace a public release.' }
           } else {
-            gh release create $tag --repo $env:GITHUB_REPOSITORY --target (git rev-parse HEAD) --draft --title "Nuvio Windows ARM64 $env:UPSTREAM_TAG" --notes "Unofficial unsigned Windows ARM64 build of https://github.com/NuvioMedia/NuvioDesktop/releases/tag/$env:UPSTREAM_TAG . Extract the portable ZIP and run Nuvio.exe. Source revisions are recorded in build-info.json."
+            gh release create $tag --repo $env:GITHUB_REPOSITORY --target (git rev-parse HEAD) --draft --title "Nuvio Windows ARM64 $env:UPSTREAM_TAG" --notes "Unofficial unsigned Windows ARM64 build of https://github.com/NuvioMedia/NuvioDesktop/releases/tag/$env:UPSTREAM_TAG . Run the ARM64 MSI for Start menu access and in-app update checks, or extract the portable ZIP and run Nuvio.exe. Source revisions are recorded in build-info.json."
             if ($LASTEXITCODE) { throw 'Could not create draft release.' }
           }
-          $files = @(Get-ChildItem build/windows-arm64 -File | Where-Object { $_.Name -match '^Nuvio-Windows-arm64-.+-portable\.zip(?:\.sha256)?$' -or $_.Name -eq 'build-info.json' })
-          if ($files.Count -ne 3) { throw 'Expected ZIP, checksum and build information.' }
+          $files = @(Get-ChildItem build/windows-arm64 -File | Where-Object { $_.Name -match '^Nuvio-Windows-arm64-.+(?:-portable\.zip|\.msi)(?:\.sha256)?$' -or $_.Name -eq 'build-info.json' })
+          if ($files.Count -ne 5) { throw 'Expected MSI, ZIP, both checksums and build information.' }
           gh release upload $tag --repo $env:GITHUB_REPOSITORY --clobber @($files.FullName)
           if ($LASTEXITCODE) { throw 'Release upload failed; draft retained.' }
           gh release edit $tag --repo $env:GITHUB_REPOSITORY --draft=false --prerelease=false "--latest=$env:MAKE_LATEST"

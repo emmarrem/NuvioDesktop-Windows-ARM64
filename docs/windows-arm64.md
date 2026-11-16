@@ -156,3 +156,10 @@ allowing suspended network requests to overlap. The build tests thread affinity
 and 256 overlapping runtime lifetimes. Failed workflows save Gradle/native logs
 and JUnit XML reports in the Windows-arm64-build-diagnostics artifact.
 
+
+
+### Windows installer and updates
+
+Download the ARM64 `.msi` from the fork's Releases page for a Start menu shortcut and Windows Installer upgrades. The portable ZIP remains available. Older portable copies must switch to this version manually; install the MSI, then open **Nuvio Desktop (Windows ARM64)** from Start. Both distributions use the same per-user app data path.
+
+New builds check this fork for regular releases with a matching Windows ARM64 MSI. The app downloads the MSI and opens Windows Installer when you select Update. An older release or a ZIP-only release is never offered as an installer. The Windows MSI is unsigned and installs machine-wide, so Windows may prompt for administrator approval.

@@ -371,11 +371,34 @@ index 526e62afe17ff520e053a996556a5b7e8909964c..755ab47e8b9e38f9c29ca1427a5c11a0
      val palette = MaterialTheme.themePalette
      val dimAlpha = MaterialTheme.nuvio.opacity.overlayLight
      val colors = palette.accentGradient.takeIf { it.size >= 2 }
+diff --git a/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/AppUpdater.kt b/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/AppUpdater.kt
+index 8c0de02b5176b6cffc6e6b69da5f036066a830f8..4a1253ff0609882ad995a7fa6129e8a542e97c1b 100644
+--- a/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/AppUpdater.kt
++++ b/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/AppUpdater.kt
+@@ -111,7 +111,9 @@ class AppUpdaterController internal constructor(
+             if (channel != preferences.channel.value) return@launch
+ 
+             result.onSuccess { update ->
+-                val remoteNewer = if (channel == UpdateChannel.ALL_RELEASES) {
++                val remoteNewer = if (AppUpdaterPlatform.releaseSource.portableArm64) {
++                    isPortableArm64UpdateNewer(update.tag, AppUpdaterPlatform.currentVersionName)
++                } else if (channel == UpdateChannel.ALL_RELEASES) {
+                     VersionUtils.isRemoteNewerLegacy(update.tag, AppUpdaterPlatform.currentVersionName)
+                 } else {
+                     VersionUtils.isRemoteNewer(update.tag, AppUpdaterPlatform.currentVersionName)
 diff --git a/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/AppUpdaterPlatform.kt b/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/AppUpdaterPlatform.kt
-index 08769589c17ba2c87b0a586386101d18291219c7..f67a6f640d78ca2265a6f120ed40e9b080ba7b18 100644
+index 08769589c17ba2c87b0a586386101d18291219c7..200f5d301738c876d50a5d60b4528d888209e768 100644
 --- a/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/AppUpdaterPlatform.kt
 +++ b/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/AppUpdaterPlatform.kt
-@@ -13,6 +13,7 @@ data class AppUpdateAssetSelector(
+@@ -6,6 +6,7 @@ data class AppUpdateReleaseSource(
+     val channelBranch: String? = null,
+     val includePrereleases: Boolean = false,
+     val userAgent: String,
++    val portableArm64: Boolean = false,
+ )
+ 
+ data class AppUpdateAssetSelector(
+@@ -13,6 +14,7 @@ data class AppUpdateAssetSelector(
      val contentTypes: List<String> = emptyList(),
      val preferredNameFragments: List<String> = emptyList(),
      val fallbackNameFragments: List<String> = emptyList(),
@@ -384,7 +407,7 @@ index 08769589c17ba2c87b0a586386101d18291219c7..f67a6f640d78ca2265a6f120ed40e9b0
  
  expect object AppUpdaterPlatform {
 diff --git a/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/AppUpdaterRepository.kt b/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/AppUpdaterRepository.kt
-index e172da38cde3d8b797e118732fd815fd9e920295..5152038514435b51ed20468d0ce2de0abba46093 100644
+index e172da38cde3d8b797e118732fd815fd9e920295..f152bcb0f3d619bf5e72fda3b27137e98778901e 100644
 --- a/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/AppUpdaterRepository.kt
 +++ b/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/AppUpdaterRepository.kt
 @@ -43,8 +43,11 @@ internal fun selectBestUpdateAsset(
@@ -401,6 +424,85 @@ index e172da38cde3d8b797e118732fd815fd9e920295..5152038514435b51ed20468d0ce2de0a
      }
      if (updateAssets.isEmpty()) return null
      if (updateAssets.size == 1) return updateAssets.first()
+@@ -67,7 +70,7 @@ internal object AppUpdaterRepository {
+         val source = AppUpdaterPlatform.releaseSource
+         val response = httpRequestRaw(
+             method = "GET",
+-            url = "https://api.github.com/repos/${source.owner}/${source.repo}/${releasePath(channel)}",
++            url = "https://api.github.com/repos/${source.owner}/${source.repo}/${releasePath(if (source.portableArm64) UpdateChannel.ALL_RELEASES else channel)}",
+             headers = mapOf(
+                 "Accept" to "application/vnd.github+json",
+                 "User-Agent" to source.userAgent,
+@@ -79,13 +82,16 @@ internal object AppUpdaterRepository {
+         if (response.status !in 200..299) {
+             error(getString(Res.string.updates_github_api_error, response.status))
+         }
+-        selectUpdate(
++        if (source.portableArm64) {
++            selectPortableArm64Update(json.decodeFromString<List<GitHubReleaseDto>>(response.body))
++        } else selectUpdate(
+             responseBody = response.body,
+             channel = channel,
+             supportedAbis = AppUpdaterPlatform.getSupportedAbis(),
+             selector = AppUpdaterPlatform.assetSelector,
+         )
+-            ?: throw NoChannelReleaseException()
++    }.mapCatching { update ->
++        update ?: throw NoChannelReleaseException()
+     }
+ 
+     internal fun releasePath(channel: UpdateChannel): String = when (channel) {
+diff --git a/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/WindowsArm64Updates.kt b/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/WindowsArm64Updates.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..24293039ec738b9b8d97a8183c59c70d7d911a82
+--- /dev/null
++++ b/composeApp/src/commonMain/kotlin/com/nuvio/app/features/updater/WindowsArm64Updates.kt
+@@ -0,0 +1,45 @@
++package com.nuvio.app.features.updater
++
++private val arm64Tag = Regex("^([a-zA-Z0-9][a-zA-Z0-9.+-]*)-arm64\\.([1-9][0-9]*)$")
++private const val releaseRoot = "https://github.com/emmarrem/NuvioDesktop-Windows-ARM64/releases"
++
++private data class PortableArm64Version(
++    val upstream: SemanticVersion,
++    val revision: Long,
++) : Comparable<PortableArm64Version> {
++    override fun compareTo(other: PortableArm64Version): Int =
++        upstream.compareTo(other.upstream).takeIf { it != 0 } ?: revision.compareTo(other.revision)
++}
++
++private fun parsePortableArm64Version(tag: String): PortableArm64Version? {
++    val (upstream, revision) = arm64Tag.matchEntire(tag)?.destructured ?: return null
++    return PortableArm64Version(VersionUtils.parse(upstream) ?: return null, revision.toLongOrNull() ?: return null)
++}
++
++internal fun isPortableArm64UpdateNewer(remote: String, installed: String): Boolean {
++    val candidate = parsePortableArm64Version(remote) ?: return false
++    val current = parsePortableArm64Version(installed) ?: return false
++    return candidate > current
++}
++
++internal fun selectPortableArm64Update(releases: List<GitHubReleaseDto>): AppUpdate? =
++    releases.asSequence()
++        .filterNot { it.draft || it.prerelease }
++        .mapNotNull { release ->
++            val tag = release.tagName ?: return@mapNotNull null
++            val version = parsePortableArm64Version(tag) ?: return@mapNotNull null
++            val upstreamTag = tag.substringBeforeLast("-arm64.")
++            val asset = release.assets.singleOrNull {
++                it.name == "Nuvio-Windows-arm64-${upstreamTag.removePrefix("v")}.msi" &&
++                    it.browserDownloadUrl == "$releaseRoot/download/$tag/${it.name}"
++            } ?: return@mapNotNull null
++            version to AppUpdate(
++                tag = tag,
++                title = release.name?.takeIf(String::isNotBlank) ?: tag,
++                notes = release.body.orEmpty(),
++                releaseUrl = "$releaseRoot/tag/$tag",
++                assetName = asset.name,
++                assetUrl = asset.browserDownloadUrl,
++                assetSizeBytes = asset.size,
++            )
++        }.maxByOrNull { it.first }?.second
 diff --git a/composeApp/src/commonTest/kotlin/com/nuvio/app/features/updater/Arm64UpdateAssetTest.kt b/composeApp/src/commonTest/kotlin/com/nuvio/app/features/updater/Arm64UpdateAssetTest.kt
 new file mode 100644
 index 0000000000000000000000000000000000000000..235c2a7061433392fc4e448cff2475e6e98ebe77
@@ -438,6 +540,50 @@ index 0000000000000000000000000000000000000000..235c2a7061433392fc4e448cff2475e6
 +        val arm = asset("Nuvio-Windows-aarch64-1.0.exe")
 +        assertEquals(arm, selectBestUpdateAsset(listOf(asset("Nuvio-Windows-arm64-1.0.zip"), arm), selector))
 +    }
++}
+diff --git a/composeApp/src/commonTest/kotlin/com/nuvio/app/features/updater/WindowsArm64UpdatesTest.kt b/composeApp/src/commonTest/kotlin/com/nuvio/app/features/updater/WindowsArm64UpdatesTest.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..d9135ddc8742a2a5c1883d9d8ba055137f92e10d
+--- /dev/null
++++ b/composeApp/src/commonTest/kotlin/com/nuvio/app/features/updater/WindowsArm64UpdatesTest.kt
+@@ -0,0 +1,38 @@
++package com.nuvio.app.features.updater
++
++import kotlin.test.Test
++import kotlin.test.assertEquals
++import kotlin.test.assertFalse
++import kotlin.test.assertTrue
++
++class WindowsArm64UpdatesTest {
++    @Test
++    fun comparesUpstreamVersionThenArm64Revision() {
++        assertTrue(isPortableArm64UpdateNewer("0.1.36-alpha-arm64.2", "0.1.36-alpha-arm64.1"))
++        assertTrue(isPortableArm64UpdateNewer("0.1.37-alpha-arm64.1", "0.1.36-alpha-arm64.2"))
++        assertTrue(isPortableArm64UpdateNewer("0.1.36-arm64.1", "0.1.36-alpha-arm64.2"))
++        assertFalse(isPortableArm64UpdateNewer("0.1.36-alpha-arm64.2", "0.1.36-alpha-arm64.2"))
++        assertFalse(isPortableArm64UpdateNewer("0.1.35-alpha-arm64.9", "0.1.36-alpha-arm64.2"))
++    }
++
++    @Test
++    fun skipsDraftsPrereleasesAndIncompatibleDownloads() {
++        val revisionTwo = "0.1.36-alpha-arm64.2"
++        val valid = release(revisionTwo, "Nuvio-Windows-arm64-0.1.36-alpha.msi")
++        val releases = listOf(
++            release("0.1.37-alpha-arm64.1", "Nuvio-Windows-x64-0.1.37-alpha.msi"),
++            release("0.1.36-alpha-arm64.1", "Nuvio-Windows-arm64-0.1.36-alpha-portable.zip"),
++            release("0.1.38-alpha-arm64.1", "Nuvio-Windows-arm64-0.1.38-alpha.msi").copy(draft = true),
++            release("0.1.39-alpha-arm64.1", "Nuvio-Windows-arm64-0.1.39-alpha.msi").copy(prerelease = true),
++            valid,
++        )
++        val selected = selectPortableArm64Update(releases)
++        assertEquals(revisionTwo, selected?.tag)
++        assertEquals(valid.assets.single().browserDownloadUrl, selected?.assetUrl)
++    }
++
++    private fun release(tag: String, asset: String) = GitHubReleaseDto(
++        tagName = tag,
++        assets = listOf(GitHubAssetDto(asset, "https://github.com/emmarrem/NuvioDesktop-Windows-ARM64/releases/download/$tag/$asset")),
++    )
 +}
 diff --git a/composeApp/src/desktopMain/kotlin/com/nuvio/app/DesktopWindowActivity.kt b/composeApp/src/desktopMain/kotlin/com/nuvio/app/DesktopWindowActivity.kt
 new file mode 100644
@@ -670,10 +816,43 @@ index c41cb54f05bc33d03fca853d97665d4a2d249211..5d03ea6943fc3d91c08b0c05373a4eae
  
  internal fun QuickJs.configurePluginRuntime() = Unit
 diff --git a/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/updater/AppUpdaterPlatform.desktop.kt b/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/updater/AppUpdaterPlatform.desktop.kt
-index 97f47f5b63e7b9d9cc802bccf9289a804bacc750..079322aa70bd61b8ed52782e0c8a0f5dad6cc05a 100644
+index 97f47f5b63e7b9d9cc802bccf9289a804bacc750..335e5e39661a7193bbf5ac32292cb21f3539741b 100644
 --- a/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/updater/AppUpdaterPlatform.desktop.kt
 +++ b/composeApp/src/desktopMain/kotlin/com/nuvio/app/features/updater/AppUpdaterPlatform.desktop.kt
-@@ -197,6 +197,7 @@ private enum class DesktopUpdaterOs {
+@@ -35,6 +35,8 @@ private val desktopUpdaterHttpClient: HttpClient = HttpClient.newBuilder()
+ 
+ actual object AppUpdaterPlatform {
+     private val currentOs: DesktopUpdaterOs = DesktopUpdaterOs.current()
++    private val arm64ReleaseRevision = System.getProperty("nuvio.arm64.releaseRevision")?.toLongOrNull()
++        ?.takeIf { it > 0 && currentOs == DesktopUpdaterOs.WINDOWS && "arm64" in desktopArchitectureFragments() }
+     private val store = DesktopStorage.store(desktopUpdaterPreferencesName)
+     actual val isDebugBuild: Boolean = false
+     actual val hasSingleUpdateChannel: Boolean = true
+@@ -53,17 +55,20 @@ actual object AppUpdaterPlatform {
+         get() = currentOs != DesktopUpdaterOs.UNKNOWN && linuxInstallMethod != LinuxInstallMethod.FLATPAK
+ 
+     actual val releaseSource: AppUpdateReleaseSource = AppUpdateReleaseSource(
+-        owner = "NuvioMedia",
+-        repo = "NuvioDesktop",
++        owner = if (arm64ReleaseRevision != null) "emmarrem" else "NuvioMedia",
++        repo = if (arm64ReleaseRevision != null) "NuvioDesktop-Windows-ARM64" else "NuvioDesktop",
+         channelBranch = null,
+         includePrereleases = true,
+         userAgent = "NuvioDesktop",
++        portableArm64 = arm64ReleaseRevision != null,
+     )
+ 
+     actual val assetSelector: AppUpdateAssetSelector
+         get() = currentOs.assetSelector(linuxInstallMethod)
+ 
+-    actual val currentVersionName: String = AppVersionConfig.DESKTOP_VERSION_NAME
++    actual val currentVersionName: String = AppVersionConfig.DESKTOP_VERSION_NAME.let { version ->
++        arm64ReleaseRevision?.let { "$version-arm64.$it" } ?: version
++    }
+ 
+     actual fun getSupportedAbis(): List<String> = emptyList()
+ 
+@@ -197,6 +202,7 @@ private enum class DesktopUpdaterOs {
                  fileExtensions = listOf(".msi", ".exe"),
                  preferredNameFragments = archFragments + listOf("windows", "win"),
                  fallbackNameFragments = listOf("universal", "all"),

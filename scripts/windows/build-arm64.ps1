@@ -5,6 +5,7 @@ param(
     [string]$LocalProperties,
     [string]$SourceDirectory,
     [string]$OfficialInstaller,
+    [ValidateRange(1,99)][int]$ReleaseRevision = 1,
     [switch]$RunTests
 )
 $ErrorActionPreference = 'Stop'
@@ -164,7 +165,7 @@ if ($LocalProperties) {
 Push-Location $repo
 try {
     $testTasks = if ($RunTests) {
-        @(':composeApp:desktopTest', '--tests', '*WindowsScrollSettingsTest', '--tests', '*WindowActivityTest', '--tests', '*Arm64UpdateAssetTest', '--tests', '*PluginRuntimeDesktopTest', '--tests', '*WindowsPluginRuntimeTest', '--tests', '*DesktopEngineTest.bundledLibraryLoadsAndCreatesEngine*')
+        @(':composeApp:desktopTest', '--tests', '*WindowsScrollSettingsTest', '--tests', '*WindowActivityTest', '--tests', '*Arm64UpdateAssetTest', '--tests', '*WindowsArm64UpdatesTest', '--tests', '*PluginRuntimeDesktopTest', '--tests', '*WindowsPluginRuntimeTest', '--tests', '*DesktopEngineTest.bundledLibraryLoadsAndCreatesEngine*')
     } else { @() }
     $gradleArguments = @(
         ':composeApp:stageWindowsArm64Portable',
@@ -217,6 +218,7 @@ Copy-Item "$repo/composeApp/build/compose/tmp/main/runtime/*" "$app/runtime" -Re
     '',
     '[JavaOptions]',
     "java-options=-Djpackage.app-version=$packageVersion",
+    "java-options=-Dnuvio.arm64.releaseRevision=$ReleaseRevision",
     'java-options=-Dcompose.application.configure.swing.globals=true',
     'java-options=-Dcompose.application.resources.dir=$APPDIR\resources',
     'java-options=--add-opens=java.desktop/java.awt=ALL-UNNAMED',

@@ -1,0 +1,24 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="Nuvio Desktop (Windows ARM64)" Manufacturer="Nuvio ARM64 community port"
+           Version="$(MsiVersion)" UpgradeCode="073069A5-B3CF-44CC-B1FD-4784E093214D"
+           Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Nuvio for Windows ARM64 is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <ui:WixUI Id="WixUI_Minimal" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(LicensePath)" />
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="INSTALLFOLDER" Name="Nuvio Windows ARM64" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+    <Feature Id="NuvioArm64" Title="Nuvio Desktop">
+      <Files Include="$(AppDirectory)\**" Directory="INSTALLFOLDER" />
+      <Component Id="NuvioStartMenu" Directory="ProgramMenuFolder" Guid="54F668EA-BA93-47B8-9385-BB404FBB7870">
+        <Shortcut Id="NuvioShortcut" Name="Nuvio Desktop (Windows ARM64)"
+                  Target="[INSTALLFOLDER]Nuvio.exe" WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKLM" Key="Software\NuvioWindowsArm64" Name="Installed"
+                       Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </Feature>
+  </Package>
+</Wix>

@@ -16,9 +16,9 @@ $uploadUrl = $release.upload_url.Split('{')[0]
 $uploadUri = [Uri]$uploadUrl
 if ($uploadUri.Scheme -ne 'https' -or $uploadUri.Host -ne 'uploads.github.com') { throw 'Unexpected GitHub upload host.' }
 $root = (Resolve-Path -LiteralPath $Directory).Path
-$files = @(Get-ChildItem -LiteralPath $root -File | Where-Object { $_.Name -match '^Nuvio-Windows-arm64-.+-portable\.zip(?:\.sha256)?$' -or $_.Name -eq 'build-info.json' })
-if (@($files | Where-Object Name -Match '-portable\.zip$').Count -ne 1 -or $files.Count -ne 3) {
-    throw 'Expected one portable ZIP, its SHA256 file, and build-info.json.'
+$files = @(Get-ChildItem -LiteralPath $root -File | Where-Object { $_.Name -match '^Nuvio-Windows-arm64-.+(?:-portable\.zip|\.msi)(?:\.sha256)?$' -or $_.Name -eq 'build-info.json' })
+if (@($files | Where-Object Name -Match '-portable\.zip$').Count -ne 1 -or @($files | Where-Object Extension -EQ '.msi').Count -ne 1 -or $files.Count -ne 5) {
+    throw 'Expected one ARM64 MSI, one portable ZIP, both SHA256 files, and build-info.json.'
 }
 foreach ($file in $files) {
     $digest = 'sha256:' + (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()

@@ -5,7 +5,7 @@ param(
     [string]$LocalProperties,
     [string]$SourceDirectory,
     [string]$OfficialInstaller,
-    [ValidateRange(1,99)][int]$ReleaseRevision = 1,
+    [ValidateRange(1,19)][int]$ReleaseRevision = 1,
     [switch]$RunTests
 )
 $ErrorActionPreference = 'Stop'

@@ -4,7 +4,7 @@ param(
     [Parameter(Mandatory)][string]$AppDirectory,
     [Parameter(Mandatory)][string]$OutputDirectory,
     [Parameter(Mandatory)][string]$VersionName,
-    [Parameter(Mandatory)][ValidateRange(1,99)][int]$Revision,
+    [Parameter(Mandatory)][ValidateRange(1,19)][int]$Revision,
     [switch]$SmokeTest
 )
 $ErrorActionPreference = 'Stop'
@@ -12,11 +12,17 @@ $PSNativeCommandUseErrorActionPreference = $true
 $app = (Resolve-Path -LiteralPath $AppDirectory).Path
 $output = (Resolve-Path -LiteralPath $OutputDirectory).Path
 if (-not (Test-Path -LiteralPath "$app/Nuvio.exe" -PathType Leaf)) { throw 'ARM64 launcher missing.' }
-$version = [regex]::Match($VersionName, '^[vV]?(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.+-]+)?$')
+$version = [regex]::Match($VersionName, '^[vV]?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$')
 if (-not $version.Success) { throw 'Unsupported MSI version name.' }
 $major, $minor, $patch = $version.Groups[1..3].Value | ForEach-Object { [int]$_ }
 # Map both the upstream version and fork rebuild number into the three fields Windows Installer compares.
-$build = $patch * 100 + $Revision
+$stage = switch -Regex ($version.Groups[4].Value) {
+    '^$' { 60; break }
+    '^rc(?:[.-]|$)' { 40; break }
+    '^beta(?:[.-]|$)' { 20; break }
+    default { 0 }
+}
+$build = $patch * 100 + $stage + $Revision
 if ($major -gt 255 -or $minor -gt 255 -or $build -gt 65535) { throw 'Version exceeds Windows Installer limits.' }
 $msiVersion = "$major.$minor.$build"
 $displayVersion = $VersionName.TrimStart([char[]]'vV')

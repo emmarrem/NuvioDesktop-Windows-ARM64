@@ -1,5 +1,5 @@
 diff --git a/composeApp/build.gradle.kts b/composeApp/build.gradle.kts
-index eb6d13c487bbb72730aa4942b729e83fdab36ae3..8e6fe58c85e0ef7ccb2c8f4e3a89245b9db87ebd 100644
+index eb6d13c487bbb72730aa4942b729e83fdab36ae3..9719fe49d3b4690b6b5722befc1d131bc181b016 100644
 --- a/composeApp/build.gradle.kts
 +++ b/composeApp/build.gradle.kts
 @@ -1,5 +1,6 @@
@@ -243,11 +243,10 @@ index eb6d13c487bbb72730aa4942b729e83fdab36ae3..8e6fe58c85e0ef7ccb2c8f4e3a89245b
      val desktopNativePlayerTasks = setOf(
          "run",
          "runRelease",
-@@ -1701,3 +1814,14 @@ configurations.all {
-     exclude(group = "androidx.media3", module = "media3-datasource-okhttp")
-     exclude(group = "androidx.media3", module = "media3-extractor")
+@@ -1692,6 +1805,17 @@ configurations.matching { it.name == "iosMainImplementation" }.configureEach {
+     project.dependencies.add(name, libs.ktor.client.darwin)
  }
-+
+ 
 +// KMP assigns its test classpath during target configuration. Add the packaged
 +// native resources afterwards so integration tests exercise the shipped DLLs.
 +afterEvaluate {
@@ -258,6 +257,10 @@ index eb6d13c487bbb72730aa4942b729e83fdab36ae3..8e6fe58c85e0ef7ccb2c8f4e3a89245b
 +        }
 +    }
 +}
++
+ configurations.all {
+     exclude(group = "androidx.media3", module = "media3-exoplayer")
+     exclude(group = "androidx.media3", module = "media3-exoplayer-hls")
 diff --git a/composeApp/src/commonMain/kotlin/com/nuvio/app/RootTabHost.kt b/composeApp/src/commonMain/kotlin/com/nuvio/app/RootTabHost.kt
 index 0b1f0b50ac4457770869bd38f043ae3307ea3de0..6993d9ab08d6a99c0bd5084c8a2b29ade2eafbb9 100644
 --- a/composeApp/src/commonMain/kotlin/com/nuvio/app/RootTabHost.kt

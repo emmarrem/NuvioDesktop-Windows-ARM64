@@ -28,8 +28,12 @@ concurrency:
 
 jobs:
   watch:
+    permissions:
+      actions: read
+      contents: read
     runs-on: ubuntu-latest
     outputs:
+      conflict_marker: ${{ steps.select.outputs.conflict_marker }}
       tag: ${{ steps.select.outputs.tag }}
       publish: ${{ steps.select.outputs.publish }}
       revision: ${{ steps.select.outputs.revision }}
@@ -74,6 +78,21 @@ jobs:
                 return;
               }
             } catch (error) { if (error.status !== 404) throw error; }
+            const {data:tagRef} = await github.rest.git.getRef({
+              owner: 'NuvioMedia', repo: 'NuvioDesktop', ref: 'tags/' + release.tag_name
+            });
+            const marker = 'arm64-port-conflict-' + release.id + '-' + tagRef.object.sha + '-' + context.sha;
+            if (context.eventName === 'schedule') {
+              const {data} = await github.rest.actions.listArtifactsForRepo({...context.repo, name: marker});
+              const previous = data.artifacts.find(a => !a.expired && a.workflow_run?.head_sha === context.sha && a.workflow_run?.head_branch === context.ref.replace('refs/heads/', ''));
+              if (previous) {
+                await core.summary.addRaw('Skipping the previously reported port conflict for ' + release.tag_name +
+                  '. [Original run](' + context.serverUrl + '/' + context.repo.owner + '/' + context.repo.repo +
+                  '/actions/runs/' + previous.workflow_run.id + '). A manual run can retry immediately.').write();
+                return;
+              }
+            }
+            core.setOutput('conflict_marker', marker);
             core.setOutput('tag', release.tag_name);
             core.setOutput('revision', revision);
             core.setOutput('publish', 'true');
@@ -106,7 +125,25 @@ jobs:
           ref: ${{ steps.release.outputs.tag }}
           path: source
       - name: Apply versioned ARM64 port to selected release
+        id: port
         run: ./scripts/windows/apply-release-port.ps1 -SourceDirectory source
+      - name: Identify a source merge conflict
+        if: failure() && steps.port.outcome == 'failure' && needs.watch.outputs.conflict_marker != ''
+        id: conflict
+        run: |
+          $unmerged = git -C source diff --name-only --diff-filter=U
+          if ($LASTEXITCODE) { throw 'Unable to inspect the failed merge.' }
+          if ($unmerged) {
+            $unmerged | Set-Content "$env:RUNNER_TEMP/arm64-port-conflict.txt"
+            'confirmed=true' >> $env:GITHUB_OUTPUT
+          }
+      - name: Remember this conflict for scheduled release checks
+        if: failure() && steps.conflict.outputs.confirmed == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ needs.watch.outputs.conflict_marker }}
+          path: ${{ runner.temp }}/arm64-port-conflict.txt
+          retention-days: 90
       - name: Configure optional custom client
         env:
           CONFIG_BASE64: ${{ secrets.NUVIO_DESKTOP_LOCAL_PROPERTIES_BASE64 }}
